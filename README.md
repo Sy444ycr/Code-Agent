@@ -29,19 +29,19 @@ Use `.env.example` as documentation only. Real `.env` files are ignored by Git.
 
 ```text
 .
-├── README.md
-├── SPEC.md
-├── PLAN.md
-├── SPEC_PROCESS.md
-├── AGENT_LOG.md
-├── REFLECTION.md
-├── docs/
-│   └── superpowers/
-│       └── specs/
-├── .env.example
-├── .gitignore
-├── AI4SE_Final_Project_A_Coding_Agent_Harness.md
-└── AI4SE_通用要求.md
+|-- README.md
+|-- SPEC.md
+|-- PLAN.md
+|-- SPEC_PROCESS.md
+|-- AGENT_LOG.md
+|-- REFLECTION.md
+|-- docs/
+|   `-- superpowers/
+|       `-- specs/
+|-- .env.example
+|-- .gitignore
+|-- AI4SE_Final_Project_A_Coding_Agent_Harness.md
+`-- AI4SE_通用要求.md
 ```
 
 ## Development
