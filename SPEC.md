@@ -1,19 +1,19 @@
 # SPEC
 
-Status: not written yet.
+状态：尚未正式编写。
 
-This file will be produced through the Superpowers brainstorming workflow after the design is reviewed and approved.
+本文件将在设计方案经过 review 并确认后，通过 Superpowers 的 brainstorming 工作流产出。
 
-The final spec must include:
+最终规格文档必须包含：
 
-- Problem statement
-- User stories
-- Functional requirements
-- Non-functional requirements
-- System architecture
-- Data model
-- Credential and distribution design
-- Technology choices and rationale
-- Acceptance criteria
-- Risks and open questions
-- Domain and mechanism design for the Coding Agent Harness project
+- 问题陈述
+- 用户故事
+- 功能需求
+- 非功能需求
+- 系统架构
+- 数据模型
+- 凭据与分发设计
+- 技术选型与理由
+- 验收标准
+- 风险与未决问题
+- Coding Agent Harness 项目的领域与机制设计

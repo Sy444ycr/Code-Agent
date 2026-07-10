@@ -1,15 +1,15 @@
 # PLAN
 
-Status: not written yet.
+状态：尚未正式编写。
 
-This file will be produced after `SPEC.md` is approved, using the Superpowers planning workflow.
+本文件将在 `SPEC.md` 获得确认后，通过 Superpowers 的 planning 工作流产出。
 
-The final plan must break implementation into small TDD tasks with:
+最终实现计划必须将开发拆分为小粒度 TDD 任务，并为每个任务说明：
 
-- Goal
-- Files touched
-- Expected implementation details
-- Verification steps
-- Dependencies
-- Parallelization notes
-- Completion commit references
+- 目标
+- 涉及文件
+- 预期实现要点
+- 验证步骤
+- 依赖关系
+- 可并行部分
+- 完成后的 commit 记录
