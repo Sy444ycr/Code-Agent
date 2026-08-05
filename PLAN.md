@@ -36,9 +36,11 @@
 - **最小绿灯**：通过红灯后，只写让当前测试通过的最小实现；不得顺手实现后续任务、额外选项或未被测试覆盖的边界。
 - **绿灯验证**：实现后先运行当前任务指定的最小测试，再运行该任务指定的相关测试集合；失败必须修实现代码，而不是放宽测试。
 - **重构只在绿灯后进行**：重构不能改变行为；重构后必须重新运行同一组测试并保持通过。
-- **证据记录**：每个任务提交前，在 `AGENT_LOG.md` 记录任务编号、红灯命令与失败摘要、绿灯命令与通过摘要、人工修改说明和 commit hash 占位。
+- **证据记录**：每个任务代码提交后，立即在 `AGENT_LOG.md` 记录任务编号、红灯命令与失败摘要、绿灯命令与通过摘要、人工修改说明和实际 commit hash，并作为独立的文档提交；`AGENT_LOG.md` 不纳入各任务代码 commit 的 `git add` 清单。
 - **配置与文档例外**：纯文档、CI 配置或包配置变更若无法先写行为测试，必须在任务记录中明确说明例外理由，并至少提供可执行验证命令。
 - **一个任务一个评审门**：每个任务完成后先做规格合规检查，再做代码质量检查；未通过前不得开始依赖它的后续任务。
+- **环境前提**：首次执行前创建虚拟环境（`python -m venv .venv`）。为保持红灯诚实，Task 1 的红灯步骤前只安装测试运行器（`pip install pytest`），完整依赖 `pip install -e ".[dev]"` 在绿灯步骤安装。
+- **Step 3 代码契约**：每个任务 Step 3 给出的代码即为最小实现契约，执行者应逐字采用；如发现其无法通过测试或违反 lint/type 配置，应暂停报告，而非自行改写。
 
 执行时，每个任务的 Step 1-5 含义固定为：
 
@@ -130,6 +132,7 @@
 - Create: `src/code_agent/__init__.py`
 - Create: `src/code_agent/core/__init__.py`
 - Create: `tests/unit/test_imports.py`
+- Create: `.gitattributes`
 - Modify: `.gitignore`
 
 **Interfaces:**
@@ -245,20 +248,18 @@ web-test:
 verify: lint typecheck test
 ```
 
-Append to `.gitignore`:
+Append to `.gitignore`（仅追加尚未存在的条目）：
 
 ```gitignore
-.venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-dist/
-build/
-*.egg-info/
 node_modules/
 web/dist/
-.env
 .code-agent/state/
+```
+
+Create `.gitattributes` to normalize line endings across platforms:
+
+```gitattributes
+* text=auto
 ```
 
 - [ ] **Step 4: Run import test to verify it passes**
@@ -286,7 +287,7 @@ git commit -m "chore: scaffold code-agent package"
 **Interfaces:**
 - Produces: enums `PermissionMode`, `TaskStatus`, `ActionType`, `RiskLevel`, `FeedbackStatus`, `SubAgentRole`
 - Produces: models `Budget`, `LoopSpec`, `Task`, `AgentDecision`, `ToolAction`, `ToolResult`, `FeedbackSignal`, `SubTaskSpec`, `SubTaskResult`, `Approval`
-- Produces: event model `Event` and protocol `EventSink.emit(task_id: str, event_type: str, payload: dict) -> Event`
+- Produces: event model `Event` and protocol `EventSink.emit(task_id: str, event_type: str, payload: dict[str, Any]) -> Event`
 
 - [ ] **Step 1: Write failing model tests**
 
@@ -357,21 +358,21 @@ Create `src/code_agent/core/models.py` with Pydantic v2 models. Required enum va
 ```python
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class PermissionMode(str, Enum):
+class PermissionMode(StrEnum):
     PLAN = "plan"
     SUPERVISED = "supervised"
     AUTO = "auto"
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     WAITING_APPROVAL = "waiting_approval"
@@ -383,7 +384,7 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class ActionType(str, Enum):
+class ActionType(StrEnum):
     TOOL_CALL = "tool_call"
     DISPATCH_SUBAGENT = "dispatch_subagent"
     REQUEST_USER_INPUT = "request_user_input"
@@ -391,7 +392,7 @@ class ActionType(str, Enum):
     STOP = "stop"
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     READ = "read"
     WRITE = "write"
     TEST = "test"
@@ -403,14 +404,14 @@ class RiskLevel(str, Enum):
     FORBIDDEN = "forbidden"
 
 
-class FeedbackStatus(str, Enum):
+class FeedbackStatus(StrEnum):
     PASSED = "passed"
     FAILED = "failed"
     ERROR = "error"
     BLOCKED = "blocked"
 
 
-class SubAgentRole(str, Enum):
+class SubAgentRole(StrEnum):
     EXPLORER = "explorer"
     IMPLEMENTER = "implementer"
     VERIFIER = "verifier"
@@ -452,7 +453,7 @@ class AgentDecision(BaseModel):
     action: ActionType
     rationale: str = ""
     tool_action: ToolAction | None = None
-    subtask: "SubTaskSpec | None" = None
+    subtask: SubTaskSpec | None = None
     completion_message: str | None = None
 
     @field_validator("tool_action")
@@ -495,7 +496,9 @@ class SubTaskSpec(BaseModel):
     role: SubAgentRole
     goal: str
     path_scope: list[str] = Field(default_factory=list)
-    budget: Budget = Field(default_factory=lambda: Budget(iterations=2, seconds=300, tool_calls=12, llm_calls=4))
+    budget: Budget = Field(
+        default_factory=lambda: Budget(iterations=2, seconds=300, tool_calls=12, llm_calls=4)
+    )
     parent_depth: int = 0
 
 
@@ -518,7 +521,7 @@ class Approval(BaseModel):
     scope: Literal["once", "task"] = "once"
     reason: str
     actor: str = "user"
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 ```
 
 Create `src/code_agent/core/events.py`:
@@ -526,8 +529,8 @@ Create `src/code_agent/core/events.py`:
 ```python
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Protocol
+from datetime import UTC, datetime
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -537,12 +540,12 @@ class Event(BaseModel):
     task_id: str
     sequence: int
     type: str
-    payload: dict
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    payload: dict[str, Any]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class EventSink(Protocol):
-    def emit(self, task_id: str, event_type: str, payload: dict) -> Event:
+    def emit(self, task_id: str, event_type: str, payload: dict[str, Any]) -> Event:
         """Persist and publish an ordered event."""
 ```
 
@@ -1209,7 +1212,7 @@ git commit -m "feat: add structured memory and context builder"
 - Consumes: `ToolAction`, `ToolResult`, `FeedbackSignal`
 - Produces: `HookPoint` enum values `on_task_start`, `before_tool_call`, `after_tool_call`, `on_iteration_end`, `before_task_complete`, `on_task_end`
 - Produces: `HookResult(blocked: bool, feedback: list[FeedbackSignal], message: str)`
-- Produces: `HookRunner.run(point: HookPoint, payload: dict) -> HookResult`
+- Produces: `HookRunner.run(point: HookPoint, payload: dict[str, Any]) -> HookResult`
 
 - [ ] **Step 1: Write failing hook tests**
 
@@ -1467,7 +1470,7 @@ git commit -m "feat: constrain subagent dispatch"
 **Interfaces:**
 - Produces: `SQLiteStore(path: Path)`
 - Produces: `SQLiteStore.create_task(task: Task, loop_spec: LoopSpec) -> Task`
-- Produces: `SQLiteStore.append_event(task_id: str, type: str, payload: dict) -> Event`
+- Produces: `SQLiteStore.append_event(task_id: str, type: str, payload: dict[str, Any]) -> Event`
 - Produces: `SQLiteStore.events_after(task_id: str, sequence: int) -> list[Event]`
 - Produces: `SQLiteStore.save_checkpoint(task_id: str, checkpoint: dict) -> None`
 - Produces: `SQLiteStore.load_checkpoint(task_id: str) -> dict | None`
