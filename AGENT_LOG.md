@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 9
+
+- 红灯：hook 测试因 `HookRunner` 缺失而失败。
+- 绿灯：目标测试 `2 passed`；Ruff、Mypy 通过；实现注册顺序、阻断合并、反馈合并与异常反馈。
+
 ## 2026-08-06 — Task 8
 
 - 红灯：memory/context 测试因模块缺失而失败。

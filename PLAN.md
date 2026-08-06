@@ -1214,7 +1214,7 @@ git commit -m "feat: add structured memory and context builder"
 - Produces: `HookResult(blocked: bool, feedback: list[FeedbackSignal], message: str)`
 - Produces: `HookRunner.run(point: HookPoint, payload: dict[str, Any]) -> HookResult`
 
-- [ ] **Step 1: Write failing hook tests**
+- [x] **Step 1: Write failing hook tests**
 
 Create `tests/unit/test_hooks_subagents.py` with hook tests first:
 
@@ -1249,13 +1249,13 @@ def test_after_tool_call_hook_can_add_feedback() -> None:
     assert result.feedback[0].summary == "custom failure"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_hooks_subagents.py -q`
 
 Expected: FAIL with missing `HookRunner`.
 
-- [ ] **Step 3: Implement hook runner**
+- [x] **Step 3: Implement hook runner**
 
 `HookRunner.run()` must execute registered hooks in registration order, merge feedback, and preserve `blocked=True` if any hook blocks. Hook exceptions become failed feedback with source `hook:<HookPoint>`.
 
@@ -1270,13 +1270,13 @@ before_task_complete:
 
 The project Hook command must be routed through `PolicyEngine.evaluate(ToolAction(tool="shell", ...))` before execution.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_hooks_subagents.py -q`
 
 Expected: PASS for hook tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/hooks.py tests/unit/test_hooks_subagents.py
