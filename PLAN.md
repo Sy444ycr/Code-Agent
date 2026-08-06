@@ -766,7 +766,7 @@ git commit -m "feat: add policy engine and approvals"
 - Produces: `ToolExecutor.execute(action: ToolAction, workspace: Workspace) -> ToolResult`
 - Tools: `read_file`, `list_dir`, `search`, `write_file`, `apply_patch`, `delete_file`, `git_diff`
 
-- [ ] **Step 1: Write failing workspace and file tool tests**
+- [x] **Step 1: Write failing workspace and file tool tests**
 
 Create `tests/unit/test_workspace_tools.py`:
 
@@ -807,13 +807,13 @@ def test_search_returns_matching_lines(tmp_path) -> None:
     assert "a.py:1:print('needle')" in result.stdout
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_workspace_tools.py -q`
 
 Expected: FAIL with missing `Workspace`.
 
-- [ ] **Step 3: Implement workspace guard and text tools**
+- [x] **Step 3: Implement workspace guard and text tools**
 
 `Workspace.resolve_inside()` must call `Path.resolve()` on workspace and target and then verify `target == root or root in target.parents`.
 
@@ -836,13 +836,13 @@ executor.execute(ToolAction(tool="delete_file", arguments={"path": "x.py"}), wor
 executor.execute(ToolAction(tool="git_diff", arguments={}), workspace)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_workspace_tools.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/workspace.py src/code_agent/core/tools.py tests/unit/test_workspace_tools.py

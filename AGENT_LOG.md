@@ -1,5 +1,11 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 4
+
+- TDD 红灯：`.venv\\Scripts\\python.exe -m pytest tests/unit/test_workspace_tools.py -q`；按预期缺少 `code_agent.core.tools`。
+- 绿灯与质量验证：目标测试 `3 passed`；完整 pytest `12 passed`；Ruff 和 Mypy 通过。
+- 实现：workspace 路径边界、写锁、UTF-8 文件读写、搜索、目录列举、删除、git diff 和受控错误结果。
+
 ## 2026-08-06 — Task 3
 
 - 触发技能：`subagent-driven-development`、`test-driven-development`。
