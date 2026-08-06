@@ -13,7 +13,7 @@ from code_agent.core.models import LoopSpec, Task
 class SQLiteStore:
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.connection = sqlite3.connect(path)
+        self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.executescript(
             "CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, data TEXT);"
             "CREATE TABLE IF NOT EXISTS specs(task_id TEXT PRIMARY KEY, data TEXT);"
