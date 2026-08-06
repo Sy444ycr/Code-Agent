@@ -1296,7 +1296,7 @@ git commit -m "feat: add lifecycle hooks"
 - Produces: `LoopController.run(task: Task, loop_spec: LoopSpec) -> TaskRunResult`
 - Produces: `TaskRunResult(status: TaskStatus, feedback: list[FeedbackSignal], events: list[Event], report: str)`
 
-- [ ] **Step 1: Write failing loop tests**
+- [x] **Step 1: Write failing loop tests**
 
 Create `tests/unit/test_loop.py`:
 
@@ -1339,13 +1339,13 @@ def test_mock_loop_continues_after_failed_check_and_then_succeeds(tmp_path) -> N
     assert any(signal.status.value == "failed" for signal in result.feedback)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_loop.py -q`
 
 Expected: FAIL with missing `LoopController`.
 
-- [ ] **Step 3: Implement loop controller**
+- [x] **Step 3: Implement loop controller**
 
 Loop algorithm:
 
@@ -1362,13 +1362,13 @@ Loop algorithm:
 
 The loop must not treat LLM `complete` as success until acceptance checks pass or the user has supplied explicit acceptance.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_loop.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/loop.py tests/unit/test_loop.py
@@ -1388,7 +1388,7 @@ git commit -m "feat: implement feedback-driven loop controller"
 - Produces: `SubAgentScheduler.dispatch(parent: Task, spec: SubTaskSpec) -> SubTaskResult`
 - Produces: `SubAgentPolicyError`
 
-- [ ] **Step 1: Write failing SubAgent tests**
+- [x] **Step 1: Write failing SubAgent tests**
 
 Append to `tests/unit/test_hooks_subagents.py`:
 
@@ -1428,13 +1428,13 @@ def test_subagent_returns_structured_summary_only() -> None:
     assert not hasattr(result, "transcript")
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_hooks_subagents.py -q`
 
 Expected: FAIL with missing `SubAgentScheduler`.
 
-- [ ] **Step 3: Implement scheduler constraints**
+- [x] **Step 3: Implement scheduler constraints**
 
 `SubAgentScheduler` must:
 
@@ -1444,13 +1444,13 @@ Expected: FAIL with missing `SubAgentScheduler`.
 - allow up to three concurrent read-only roles in future async implementation;
 - return `SubTaskResult`, not transcript text.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_hooks_subagents.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/subagents.py tests/unit/test_hooks_subagents.py

@@ -1,5 +1,11 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 10–11
+
+- Task 10 红灯：loop 测试因 `LoopController` 缺失而失败；绿灯后完整测试 `25 passed`。
+- Task 11 红灯：SubAgent 测试因 scheduler 缺失而失败；绿灯后完整测试 `28 passed`。
+- Ruff、Mypy 均通过；实现反馈驱动循环、验收检查、事件记录、SubAgent 深度/预算/写入约束和结构化结果。
+
 ## 2026-08-06 — Task 9
 
 - 红灯：hook 测试因 `HookRunner` 缺失而失败。
