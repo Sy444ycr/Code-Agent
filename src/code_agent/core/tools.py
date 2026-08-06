@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from code_agent.core.models import ToolAction, ToolResult
@@ -86,6 +87,8 @@ class ToolExecutor:
                 )
             if action.tool in {"shell", "run_check"}:
                 command = str(action.arguments.get("command", ""))
+                if command.startswith("python "):
+                    command = f'"{sys.executable}" {command[7:]}'
                 env = {
                     key: value
                     for key, value in os.environ.items()
