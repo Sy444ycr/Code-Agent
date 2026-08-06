@@ -289,7 +289,7 @@ git commit -m "chore: scaffold code-agent package"
 - Produces: models `Budget`, `LoopSpec`, `Task`, `AgentDecision`, `ToolAction`, `ToolResult`, `FeedbackSignal`, `SubTaskSpec`, `SubTaskResult`, `Approval`
 - Produces: event model `Event` and protocol `EventSink.emit(task_id: str, event_type: str, payload: dict[str, Any]) -> Event`
 
-- [ ] **Step 1: Write failing model tests**
+- [x] **Step 1: Write failing model tests**
 
 Create `tests/unit/test_models.py`:
 
@@ -345,13 +345,13 @@ def test_permission_mode_values_are_stable() -> None:
     assert [mode.value for mode in PermissionMode] == ["plan", "supervised", "auto"]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_models.py -q`
 
 Expected: FAIL with imports missing from `code_agent.core.models`.
 
-- [ ] **Step 3: Implement model definitions**
+- [x] **Step 3: Implement model definitions**
 
 Create `src/code_agent/core/models.py` with Pydantic v2 models. Required enum values:
 
@@ -549,13 +549,13 @@ class EventSink(Protocol):
         """Persist and publish an ordered event."""
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_models.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/models.py src/code_agent/core/events.py tests/unit/test_models.py
