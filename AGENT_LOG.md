@@ -1,5 +1,13 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 3
+
+- 触发技能：`subagent-driven-development`、`test-driven-development`。
+- 红灯：`.venv\Scripts\python.exe -m pytest tests/unit/test_policy.py -q`；按预期因 `code_agent.core.policy` 缺失而在收集阶段失败。
+- 初次绿灯：策略测试 `4 passed`，完整 pytest `9 passed`；随后 Ruff/Mypy 发现测试行过长和可选字典类型窄化问题。
+- 修正后验证：策略测试 `4 passed`；完整 pytest `9 passed`；Ruff `All checks passed!`；Mypy `Success: no issues found in 5 source files`。
+- 人工干预：委派 subagent 因运行环境无响应而关闭，随后由主 Agent 接手；未实现 Task 4。
+
 ## 2026-08-06 — Task 2
 
 - 触发技能：`subagent-driven-development`、`test-driven-development`。
