@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 12
+
+- 红灯：storage 集成测试因 `SQLiteStore` 缺失而失败。
+- 绿灯：目标测试 `2 passed`；完整 pytest `30 passed`；Ruff、Mypy 通过；实现任务、事件顺序回放和 checkpoint 往返持久化。
+
 ## 2026-08-06 — Task 10–11
 
 - Task 10 红灯：loop 测试因 `LoopController` 缺失而失败；绿灯后完整测试 `25 passed`。

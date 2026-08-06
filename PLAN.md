@@ -1475,7 +1475,7 @@ git commit -m "feat: constrain subagent dispatch"
 - Produces: `SQLiteStore.save_checkpoint(task_id: str, checkpoint: dict) -> None`
 - Produces: `SQLiteStore.load_checkpoint(task_id: str) -> dict | None`
 
-- [ ] **Step 1: Write failing storage tests**
+- [x] **Step 1: Write failing storage tests**
 
 Create `tests/integration/test_storage.py`:
 
@@ -1507,13 +1507,13 @@ def test_checkpoint_roundtrip(tmp_path) -> None:
     assert store.load_checkpoint(task.id) == {"iteration": 2, "pending_action": "approval_1"}
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/integration/test_storage.py -q`
 
 Expected: FAIL with missing `SQLiteStore`.
 
-- [ ] **Step 3: Implement SQLite persistence**
+- [x] **Step 3: Implement SQLite persistence**
 
 Use SQLAlchemy Core or ORM. Tables required:
 
@@ -1526,13 +1526,13 @@ Use SQLAlchemy Core or ORM. Tables required:
 
 `append_event()` must assign `sequence = max(sequence for task_id) + 1` in one transaction.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/integration/test_storage.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/storage.py src/code_agent/core/events.py src/code_agent/core/memory.py tests/integration/test_storage.py
