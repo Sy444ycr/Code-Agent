@@ -1903,7 +1903,7 @@ git commit -m "feat: add react task console"
 - Produces: GitLab job named `unit-test`
 - Produces: deterministic demo covering guardrail, feedback loop, and memory/hook or SubAgent mechanism
 
-- [ ] **Step 1: Write failing CI/demo smoke test**
+- [x] **Step 1: Write failing CI/demo smoke test**
 
 Create a pytest smoke test in `tests/integration/test_demo_script.py`:
 
@@ -1920,13 +1920,13 @@ def test_mock_feedback_demo_runs() -> None:
     assert "feedback_loop=succeeded" in result.stdout
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/integration/test_demo_script.py -q`
 
 Expected: FAIL because `demos/mock_feedback_loop.py` does not exist.
 
-- [ ] **Step 3: Implement deterministic demo and CI**
+- [x] **Step 3: Implement deterministic demo and CI**
 
 `demos/mock_feedback_loop.py` must:
 
@@ -1962,7 +1962,7 @@ unit-test:
 - `cd web && npm ci && npm test -- --run && npm run build`
 - a credentials scan command that fails on committed `.env` or obvious `sk-` style secrets.
 
-- [ ] **Step 4: Run full verification**
+- [x] **Step 4: Run full verification**
 
 Run:
 
@@ -1979,7 +1979,7 @@ cd web && npm test -- --run && npm run build
 
 Expected: all commands PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/ci.yml .gitlab-ci.yml demos/mock_feedback_loop.py tests/integration/test_demo_script.py README.md AGENT_LOG.md SPEC_PROCESS.md

@@ -31,3 +31,7 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 ## 冷启动验证
 
 在全新 agent 仅使用 `SPEC.md` 与 `PLAN.md` 尝试实现一到两个任务后填写。
+
+## 实现阶段记录
+
+冷启动验证完成后，在隔离 worktree 中按 Task 1–17 执行严格 TDD。每个任务均记录红灯、绿灯、静态检查和提交；Windows 环境缺少 `make` 时，使用等价的 pytest、Ruff 和 Mypy 命令验证底层行为。

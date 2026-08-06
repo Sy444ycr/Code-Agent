@@ -1,5 +1,17 @@
 # AGENT_LOG
 
+## 2026-08-06 — Final branch review
+
+- Task 4–17 已完成最小实现并分别提交；完整 Python 验证为 `36 passed`，Ruff/Mypy/diff check 通过。
+- WebUI 验证：Vitest `2 passed`，Vite build 成功。
+- Windows 无 `make` 命令，故使用等价底层命令验证；CI 文件仍保留课程要求的 `make verify` 入口。
+
+## 2026-08-06 — Task 17
+
+- 红灯：demo smoke test 因 `demos/mock_feedback_loop.py` 缺失而失败。
+- 绿灯与最终验证：demo 输出 `guardrail=denied`、`feedback_loop=succeeded`；完整 pytest `36 passed`；Ruff、Mypy、diff check 通过。
+- 添加 GitHub/GitLab CI、机制 demo、README 和过程文档收尾记录。
+
 ## 2026-08-06 — Task 16
 
 - 红灯：WebUI 测试因文件不存在而失败。

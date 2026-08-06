@@ -1,5 +1,7 @@
 # Code-Agent
 
+当前实现包含核心循环、治理策略、workspace 工具、反馈、Mock LLM、记忆、Hook、SubAgent、SQLite、FastAPI、CLI、TUI 和 WebUI 最小可运行骨架。开发验证使用 Mock LLM，不依赖真实 API Key。
+
 Code-Agent 是一个面向本地代码仓库的通用编码助手，也是 AI4SE 期末项目 A：Coding Agent Harness。
 
 用户可以用自然语言描述需求，由 Agent 在指定 workspace 中理解项目、修改代码、执行命令、运行验证，并根据测试、Lint、类型检查和构建反馈持续调整。项目不依赖现成的高层 Agent Runner，核心主循环、工具分发、治理、反馈、记忆与 SubAgent 调度均由本仓库自行实现。
