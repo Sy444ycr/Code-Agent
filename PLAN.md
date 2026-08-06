@@ -1811,7 +1811,7 @@ git commit -m "feat: add textual task console"
 - Produces: first-screen usable control console, not a marketing page
 - Produces: WebUI views for task creation, event timeline, approval, and result summary
 
-- [ ] **Step 1: Write failing React test**
+- [x] **Step 1: Write failing React test**
 
 Create `web/src/App.test.tsx`:
 
@@ -1840,13 +1840,13 @@ describe("App", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd web && npm install && npm test -- --run`
 
 Expected: FAIL because WebUI files do not exist.
 
-- [ ] **Step 3: Implement WebUI**
+- [x] **Step 3: Implement WebUI**
 
 Required UI behavior:
 
@@ -1860,7 +1860,7 @@ Required UI behavior:
 
 Use neutral grays plus distinct status colors; avoid one-note purple/blue gradient styling.
 
-- [ ] **Step 4: Run unit and visual checks**
+- [x] **Step 4: Run unit and visual checks**
 
 Run:
 
@@ -1879,7 +1879,7 @@ cd web && npm run e2e
 
 Expected: PASS with desktop and mobile smoke screenshots.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web

@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 16
+
+- 红灯：WebUI 测试因文件不存在而失败。
+- 修正后验证：Vitest `2 passed`；Vite build 成功；实现紧凑任务控制台、Goal 校验和基础响应式样式。
+
 ## 2026-08-06 — Task 15
 
 - 红灯：TUI 测试因 `CodeAgentTui` 缺失而失败。
