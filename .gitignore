@@ -15,6 +15,11 @@ venv/
 env/
 
 .worktrees/
+.superpowers/
+
+node_modules/
+web/dist/
+.code-agent/state/
 
 dist/
 build/
