@@ -140,7 +140,7 @@
 - Produces: CLI script name `code-agent`
 - Produces: test commands `make test`, `make lint`, `make typecheck`
 
-- [ ] **Step 1: Write the failing import test**
+- [x] **Step 1: Write the failing import test**
 
 Create `tests/unit/test_imports.py`:
 
@@ -152,13 +152,13 @@ def test_package_exports_version() -> None:
     assert code_agent.__version__
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/unit/test_imports.py -q`
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'code_agent'`.
 
-- [ ] **Step 3: Add package configuration**
+- [x] **Step 3: Add package configuration**
 
 Create `pyproject.toml`:
 
@@ -262,13 +262,13 @@ Create `.gitattributes` to normalize line endings across platforms:
 * text=auto
 ```
 
-- [ ] **Step 4: Run import test to verify it passes**
+- [x] **Step 4: Run import test to verify it passes**
 
 Run: `pip install -e ".[dev]" && pytest tests/unit/test_imports.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml Makefile .gitignore src/code_agent tests/unit/test_imports.py
