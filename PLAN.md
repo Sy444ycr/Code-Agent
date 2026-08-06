@@ -1118,7 +1118,7 @@ git commit -m "feat: add llm provider abstraction"
 - Produces: `MemoryStore.search(workspace: str, tags: list[str], limit: int) -> list[MemoryEntry]`
 - Produces: `ContextBuilder.build(task: Task, loop_spec: LoopSpec, feedback: list[FeedbackSignal]) -> str`
 
-- [ ] **Step 1: Write failing memory/context tests**
+- [x] **Step 1: Write failing memory/context tests**
 
 Create `tests/unit/test_memory_context.py`:
 
@@ -1161,13 +1161,13 @@ def test_context_redacts_known_secret_patterns() -> None:
     assert "[REDACTED]" in context
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_memory_context.py -q`
 
 Expected: FAIL with missing `InMemoryMemoryStore`.
 
-- [ ] **Step 3: Implement in-memory memory and context construction**
+- [x] **Step 3: Implement in-memory memory and context construction**
 
 Context sections must appear in this order:
 
@@ -1187,13 +1187,13 @@ r"(?i)(api[_-]?key|token|secret)=\S+"
 
 When over `max_chars`, remove oldest feedback first, then truncate memory content, while preserving Goal and Acceptance Checks.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_memory_context.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/memory.py src/code_agent/core/context.py tests/unit/test_memory_context.py

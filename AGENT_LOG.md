@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 8
+
+- 红灯：memory/context 测试因模块缺失而失败。
+- 绿灯：目标测试 `3 passed`；Ruff、Mypy 通过；实现候选/已验证记忆、检索、上下文分节与敏感信息脱敏。
+
 ## 2026-08-06 — Task 7
 
 - 红灯：LLM provider 测试因 `code_agent.core.llm` 缺失而失败。
