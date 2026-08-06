@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 13
+
+- 红灯：API 测试因 `create_app` 缺失而失败。
+- 绿灯：目标测试 `2 passed`；Ruff、Mypy 通过；实现任务创建、workspace 校验、事件 JSON 回放和 SSE 流。
+
 ## 2026-08-06 — Task 12
 
 - 红灯：storage 集成测试因 `SQLiteStore` 缺失而失败。

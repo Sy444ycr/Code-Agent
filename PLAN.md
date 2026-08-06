@@ -1562,7 +1562,7 @@ git commit -m "feat: persist tasks events and checkpoints"
   - `GET /api/tasks/{id}/diff`
   - `GET /api/tasks/{id}/report`
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 Create `tests/integration/test_api_sse.py`:
 
@@ -1594,13 +1594,13 @@ def test_events_endpoint_replays_ordered_events(tmp_path) -> None:
     assert isinstance(response.json()["events"], list)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/integration/test_api_sse.py -q`
 
 Expected: FAIL with missing `create_app`.
 
-- [ ] **Step 3: Implement API application**
+- [x] **Step 3: Implement API application**
 
 Implementation rules:
 
@@ -1611,13 +1611,13 @@ Implementation rules:
 - `GET /api/tasks/{id}/events/stream?after=N` returns SSE with `id:` set to sequence and `event:` set to event type.
 - A disconnected SSE client must not cancel the task.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/integration/test_api_sse.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/api tests/integration/test_api_sse.py
