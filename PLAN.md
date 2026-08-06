@@ -961,7 +961,7 @@ git commit -m "feat: execute shell checks safely"
 - Produces: `FeedbackAdapter.from_tool_result(result: ToolResult) -> FeedbackSignal`
 - Produces: stable failure fingerprints for exit code, pytest failure names, TypeScript errors, Go failures and generic stderr
 
-- [ ] **Step 1: Write failing feedback tests**
+- [x] **Step 1: Write failing feedback tests**
 
 Create `tests/unit/test_feedback.py`:
 
@@ -994,13 +994,13 @@ def test_generic_failure_uses_exit_code_and_stderr_hash() -> None:
     assert signal.fingerprint.startswith("shell:2:")
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_feedback.py -q`
 
 Expected: FAIL with missing `FeedbackAdapter`.
 
-- [ ] **Step 3: Implement deterministic parsing**
+- [x] **Step 3: Implement deterministic parsing**
 
 Implement parsers in this order:
 
@@ -1013,13 +1013,13 @@ Implement parsers in this order:
 
 Evidence must include at most five non-empty output lines.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_feedback.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/feedback.py tests/unit/test_feedback.py

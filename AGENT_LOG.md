@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 6
+
+- 红灯：`test_feedback.py` 因 `FeedbackAdapter` 缺失而失败。
+- 绿灯：目标测试 `3 passed`；Ruff、Mypy 通过；实现 exit code、pytest、TypeScript、Go、Maven 和通用 stderr 指纹解析。
+
 ## 2026-08-06 — Task 5
 
 - TDD 红灯：新增检测/shell 测试后，因 `project_detection` 缺失而失败。
