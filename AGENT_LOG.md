@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 15
+
+- 红灯：TUI 测试因 `CodeAgentTui` 缺失而失败。
+- 绿灯：目标测试 `1 passed`；Ruff、Mypy 通过；实现启动屏及最小 Run/Approval/Result 屏幕骨架。
+
 ## 2026-08-06 — Task 14
 
 - 红灯：CLI 测试因 `code_agent.cli` 缺失而失败。

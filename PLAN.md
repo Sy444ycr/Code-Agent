@@ -1732,7 +1732,7 @@ git commit -m "feat: add cli and credential commands"
 - Produces: `CodeAgentTui(api_base_url: str | None = None)`
 - Screens: `StartScreen`, `RunScreen`, `ApprovalScreen`, `ResultScreen`
 
-- [ ] **Step 1: Write failing TUI smoke test**
+- [x] **Step 1: Write failing TUI smoke test**
 
 Create `tests/integration/test_tui.py`:
 
@@ -1750,13 +1750,13 @@ async def test_tui_starts_on_start_screen() -> None:
         assert app.screen.id == "start"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/integration/test_tui.py -q`
 
 Expected: FAIL with missing `CodeAgentTui`.
 
-- [ ] **Step 3: Implement minimal screens**
+- [x] **Step 3: Implement minimal screens**
 
 Start screen must display:
 
@@ -1772,13 +1772,13 @@ Approval screen must display action, risk reason, impact scope, `Allow Once`, `A
 
 Result screen must display final status, diff summary, verification evidence, and unresolved items.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/integration/test_tui.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/tui tests/integration/test_tui.py
