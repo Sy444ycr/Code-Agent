@@ -1040,7 +1040,7 @@ git commit -m "feat: parse objective feedback signals"
 - Produces: `MockLLMProvider(decisions: list[AgentDecision])`
 - Produces: `OpenAICompatibleProvider(base_url: str, model: str, api_key_getter: Callable[[], str])`
 
-- [ ] **Step 1: Write failing provider tests**
+- [x] **Step 1: Write failing provider tests**
 
 Create `tests/unit/test_llm.py`:
 
@@ -1070,13 +1070,13 @@ def test_mock_provider_exhaustion_is_deterministic() -> None:
         provider.decide("ctx")
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_llm.py -q`
 
 Expected: FAIL with missing `MockLLMProvider`.
 
-- [ ] **Step 3: Implement providers**
+- [x] **Step 3: Implement providers**
 
 `MockLLMProvider` must pop decisions in order and keep `contexts_seen: list[str]`.
 
@@ -1090,13 +1090,13 @@ Expected: FAIL with missing `MockLLMProvider`.
 
 Default tests for `OpenAICompatibleProvider` must mock HTTP and never call the network.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_llm.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/llm.py tests/unit/test_llm.py

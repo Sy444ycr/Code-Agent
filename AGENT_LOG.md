@@ -1,5 +1,10 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 7
+
+- 红灯：LLM provider 测试因 `code_agent.core.llm` 缺失而失败。
+- 绿灯：目标测试 `2 passed`；Ruff、Mypy 通过；实现 Mock 顺序决策、耗尽错误和兼容 OpenAI 的 provider。
+
 ## 2026-08-06 — Task 6
 
 - 红灯：`test_feedback.py` 因 `FeedbackAdapter` 缺失而失败。
