@@ -1650,7 +1650,7 @@ git commit -m "feat: expose task api and event replay"
   - `code-agent auth status <provider>`
   - `code-agent auth clear <provider>`
 
-- [ ] **Step 1: Write failing CLI tests**
+- [x] **Step 1: Write failing CLI tests**
 
 Create `tests/integration/test_cli.py`:
 
@@ -1678,13 +1678,13 @@ def test_auth_status_does_not_print_secret(monkeypatch) -> None:
     assert "sk-" not in result.output
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/integration/test_cli.py -q`
 
 Expected: FAIL with missing `code_agent.cli`.
 
-- [ ] **Step 3: Implement CLI and keyring auth**
+- [x] **Step 3: Implement CLI and keyring auth**
 
 Auth implementation:
 
@@ -1705,13 +1705,13 @@ Rules:
 - `web` starts uvicorn bound to `127.0.0.1` by default.
 - `run` supports `--json` output with task id and status.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/integration/test_cli.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/config.py src/code_agent/auth.py src/code_agent/cli.py tests/integration/test_cli.py .env.example
