@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -82,6 +84,37 @@ class ToolExecutor:
                     stdout=result.stdout[: workspace.max_output_chars],
                     stderr=result.stderr[: workspace.max_output_chars],
                 )
+            if action.tool in {"shell", "run_check"}:
+                command = str(action.arguments.get("command", ""))
+                env = {
+                    key: value
+                    for key, value in os.environ.items()
+                    if not re.search(r"(API_KEY|TOKEN|SECRET)$", key)
+                }
+                timeout = float(action.arguments.get("timeout_seconds", 30))
+                try:
+                    result = subprocess.run(
+                        command,
+                        cwd=workspace.root,
+                        timeout=timeout,
+                        capture_output=True,
+                        text=True,
+                        shell=True,
+                        env=env,
+                    )
+                    return ToolResult(
+                        tool=action.tool,
+                        exit_code=result.returncode,
+                        stdout=result.stdout[: workspace.max_output_chars],
+                        stderr=result.stderr[: workspace.max_output_chars],
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    return ToolResult(
+                        tool=action.tool,
+                        exit_code=124,
+                        stdout=str(exc.stdout or ""),
+                        stderr="timed out",
+                    )
             return ToolResult(
                 tool=action.tool, exit_code=1, stderr=f"unsupported tool: {action.tool}"
             )
