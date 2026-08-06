@@ -578,7 +578,7 @@ git commit -m "feat: define core harness models"
 - Produces: `ApprovalStore.create(tool_call_id: str, reason: str) -> Approval`
 - Produces: `ApprovalStore.decide(approval_id: str, approved: bool, scope: Literal["once","task"], actor: str) -> Approval`
 
-- [ ] **Step 1: Write failing policy tests**
+- [x] **Step 1: Write failing policy tests**
 
 Create `tests/unit/test_policy.py`:
 
@@ -629,13 +629,13 @@ def test_approval_store_records_append_only_decisions() -> None:
     assert approved.actor == "tester"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_policy.py -q`
 
 Expected: FAIL with `ModuleNotFoundError` or missing `PolicyEngine`.
 
-- [ ] **Step 3: Implement policy matrix**
+- [x] **Step 3: Implement policy matrix**
 
 Implement `src/code_agent/core/policy.py` with these exact behaviors:
 
@@ -737,13 +737,13 @@ class ApprovalStore:
         return decided
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_policy.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/policy.py tests/unit/test_policy.py
