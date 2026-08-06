@@ -1,5 +1,11 @@
 # AGENT_LOG
 
+## 2026-08-06 — Task 5
+
+- TDD 红灯：新增检测/shell 测试后，因 `project_detection` 缺失而失败。
+- 绿灯与质量验证：完整 pytest `14 passed`；Ruff 和 Mypy 通过。
+- 实现：项目生态检测、验证命令生成、安全 shell/run_check 执行、超时处理和凭据环境变量过滤。
+
 ## 2026-08-06 — Task 4
 
 - TDD 红灯：`.venv\\Scripts\\python.exe -m pytest tests/unit/test_workspace_tools.py -q`；按预期缺少 `code_agent.core.tools`。

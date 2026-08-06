@@ -868,7 +868,7 @@ git commit -m "feat: add workspace guard and file tools"
 - Produces: `ProjectDetector.verification_commands(workspace: Workspace) -> list[str]`
 - Extends: `ToolExecutor` tools `shell` and `run_check`
 
-- [ ] **Step 1: Write failing detection and shell tests**
+- [x] **Step 1: Write failing detection and shell tests**
 
 Append to `tests/unit/test_workspace_tools.py`:
 
@@ -901,13 +901,13 @@ def test_shell_tool_runs_in_workspace_without_provider_keys(tmp_path, monkeypatc
     assert "None" in result.stdout
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/unit/test_workspace_tools.py -q`
 
 Expected: FAIL with missing `ProjectDetector` and unsupported `shell`.
 
-- [ ] **Step 3: Implement shell and ecosystem detection**
+- [x] **Step 3: Implement shell and ecosystem detection**
 
 `ProjectDetector` must map these files to commands:
 
@@ -935,13 +935,13 @@ Expected: FAIL with missing `ProjectDetector` and unsupported `shell`.
 - on timeout return `exit_code=124` and `stderr` containing `timed out`;
 - `run_check` runs one configured command and labels `ToolResult.tool` as `run_check`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/test_workspace_tools.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/code_agent/core/tools.py src/code_agent/core/project_detection.py tests/unit/test_workspace_tools.py tests/fixtures/workspaces
