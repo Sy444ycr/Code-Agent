@@ -47,7 +47,7 @@
 - 产生：`load_mock_decisions(path: Path) -> list[AgentDecision]`
 - 接受：顶层 JSON 对象 `{ "decisions": [...] }`，每个决策字段必须符合 `AgentDecision`，未知字段被拒绝。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/unit/test_scenarios.py` 写入：
 
@@ -76,7 +76,7 @@ def test_load_mock_decisions_rejects_unknown_nested_field(tmp_path) -> None:
         load_mock_decisions(path)
 ```
 
-- [ ] **步骤 2：运行测试并确认红灯**
+- [x] **步骤 2：运行测试并确认红灯**
 
 运行：
 
@@ -86,7 +86,7 @@ def test_load_mock_decisions_rejects_unknown_nested_field(tmp_path) -> None:
 
 预期：因缺少 `code_agent.application.scenarios` 而失败。
 
-- [ ] **步骤 3：实现最小场景加载器**
+- [x] **步骤 3：实现最小场景加载器**
 
 在 `src/code_agent/application/scenarios.py` 定义严格 Pydantic 模型，并在加载时转换为领域模型：
 
@@ -106,7 +106,7 @@ def load_mock_decisions(path: Path) -> list[AgentDecision]:
 
 `_StrictScenario`、`_StrictDecision` 和 `_StrictToolAction` 使用 `ConfigDict(extra="forbid")`；将 `action`、`rationale`、`tool_action`、`subtask`、`completion_message` 显式映射为 `AgentDecision` 支持的字段。
 
-- [ ] **步骤 4：运行测试并确认绿灯**
+- [x] **步骤 4：运行测试并确认绿灯**
 
 运行：
 
@@ -116,7 +116,7 @@ def load_mock_decisions(path: Path) -> list[AgentDecision]:
 
 预期：通过。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```powershell
 git add src/code_agent/application/__init__.py src/code_agent/application/scenarios.py tests/unit/test_scenarios.py
