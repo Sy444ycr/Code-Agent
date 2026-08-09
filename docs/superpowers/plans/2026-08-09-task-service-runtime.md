@@ -305,11 +305,11 @@ git commit -m "feat: persist task statuses and approvals"
 
 **接口：**
 
-- 产生：`TaskService(store: SQLiteStore, approval_handler: ApprovalHandler | None = None)`
+- 产生：`TaskService(store: SQLiteStore, approval_handler: ApprovalPrompt | None = None)`
 - 产生：`TaskService.run(workspace: Path, goal: str, mode: PermissionMode, decisions: list[AgentDecision], acceptance_checks: list[str]) -> TaskRunResult`
 - `code-agent run` 接受 `--provider`、`--mock-decisions`、`--mode`、多个 `--check` 与 `--json`。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/integration/test_cli_runtime.py` 写入：
 
@@ -338,7 +338,23 @@ def test_cli_run_executes_mock_scenario_and_persists_evidence(tmp_path) -> None:
     assert (tmp_path / ".code-agent" / "state.db").exists()
 ```
 
-- [ ] **步骤 2：运行测试并确认红灯**
+并在同一文件追加拒绝审批测试：
+
+```python
+def test_cli_run_records_rejected_supervised_shell(tmp_path) -> None:
+    scenario = tmp_path / "decisions.json"
+    scenario.write_text(json.dumps({"decisions": [
+        {"action": "tool_call", "tool_action": {"tool": "shell", "arguments": {"command": "python -c \"pass\""}}},
+        {"action": "complete", "completion_message": "done"},
+    ]}), encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["run", str(tmp_path), "run shell", "--mock-decisions", str(scenario), "--json"], input="n\n")
+
+    assert result.exit_code == 1
+    assert json.loads(result.output.splitlines()[-1])["status"] == "needs_review"
+```
+
+- [x] **步骤 2：运行测试并确认红灯**
 
 运行：
 
@@ -348,13 +364,13 @@ def test_cli_run_executes_mock_scenario_and_persists_evidence(tmp_path) -> None:
 
 预期：CLI 不识别 `--mock-decisions`，或仍输出固定 `pending`。
 
-- [ ] **步骤 3：实现最小 TaskService 与 CLI**
+- [x] **步骤 3：实现最小 TaskService 与 CLI**
 
 `TaskService.run` 必须：创建 `Task` 和 `LoopSpec`；将状态更新为 `running`；使用 `MockLLMProvider(decisions)`、`PolicyEngine`、`ToolExecutor`、`FeedbackAdapter` 和 `LoopController` 执行；将全部事件写入 SQLite；创建与更新审批；把最终状态写回任务；追加含报告、反馈、修改文件和验收结果的 `task_completed` 事件。
 
 CLI 的审批回调使用 `typer.prompt` 接收 `y`、`a`、`n`，并返回 `ApprovalResolution`。`--provider` 不等于 `mock`、缺少 `--mock-decisions` 或场景加载失败时，CLI 输出错误并以非零状态退出。JSON 输出使用 `TaskRunResult` 和持久化证据生成的字典；非 JSON 输出显示状态、报告、修改文件与验证摘要。
 
-- [ ] **步骤 4：运行测试并确认绿灯**
+- [x] **步骤 4：运行测试并确认绿灯**
 
 运行：
 
@@ -364,7 +380,7 @@ CLI 的审批回调使用 `typer.prompt` 接收 `y`、`a`、`n`，并返回 `App
 
 预期：通过。
 
-- [ ] **步骤 5：运行完整验证并提交**
+- [x] **步骤 5：运行完整验证并提交**
 
 运行：
 

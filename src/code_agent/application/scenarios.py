@@ -6,7 +6,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from code_agent.core.models import AgentDecision, Budget, SubTaskSpec, ToolAction
+from code_agent.core.models import (
+    ActionType,
+    AgentDecision,
+    Budget,
+    SubAgentRole,
+    SubTaskSpec,
+    ToolAction,
+)
 
 
 class MockScenarioError(ValueError):
@@ -32,7 +39,7 @@ class _StrictBudget(BaseModel):
 class _StrictSubTask(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role: str
+    role: SubAgentRole
     goal: str
     path_scope: list[str] = Field(default_factory=list)
     budget: _StrictBudget = Field(default_factory=_StrictBudget)
@@ -42,7 +49,7 @@ class _StrictSubTask(BaseModel):
 class _StrictDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: str
+    action: ActionType
     rationale: str = ""
     tool_action: _StrictToolAction | None = None
     subtask: _StrictSubTask | None = None

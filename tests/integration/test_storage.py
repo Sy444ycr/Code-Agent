@@ -19,6 +19,14 @@ def test_checkpoint_roundtrip(tmp_path) -> None:
     assert store.load_checkpoint(task.id) == {"iteration": 2, "pending_action": "approval_1"}
 
 
+def test_store_creates_parent_directory_for_state_database(tmp_path) -> None:
+    path = tmp_path / ".code-agent" / "state.db"
+
+    SQLiteStore(path)
+
+    assert path.exists()
+
+
 def test_task_status_and_approval_roundtrip(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "state.db")
     task = store.create_task(Task(workspace="/repo", goal="goal"), LoopSpec(goal="goal"))

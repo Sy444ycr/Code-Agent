@@ -1,5 +1,13 @@
 # AGENT_LOG
 
+## 2026-08-09 — Task 18
+
+- 使用 `superpowers:brainstorming`、`writing-plans` 和 `executing-plans` 完成单机、单任务、Mock LLM CLI 闭环；在 `codex/task-18-mock-runtime` 隔离 worktree 中实施。
+- 红灯：场景加载器、审批结果模型、SQLite 状态更新和 TaskService 均按预期先缺失；分别以最小实现转绿。
+- 调试：TaskService 集成测试暴露嵌套 `.code-agent/state.db` 的父目录不存在；根因是 `SQLiteStore` 直接连接路径。新增回归测试后由存储层创建父目录。
+- 绿灯与最终验证：pytest `44 passed`，Ruff、Mypy 通过，Mock 机制演示通过。
+- 实现：严格 JSON Mock 场景、`y/a/n` CLI 审批、任务和审批 SQLite 持久化、`TaskService` 与真实 `code-agent run` 执行链路。
+
 ## 2026-08-06 — Final branch review
 
 - Task 4–17 已完成最小实现并分别提交；完整 Python 验证为 `36 passed`，Ruff/Mypy/diff check 通过。

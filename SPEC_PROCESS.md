@@ -37,3 +37,5 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 ## 实现阶段记录
 
 冷启动验证完成后，在隔离 worktree 中按 Task 1–17 执行严格 TDD。每个任务均记录红灯、绿灯、静态检查和提交；Windows 环境缺少 `make` 时，使用等价的 pytest、Ruff 和 Mypy 命令验证底层行为。
+
+2026-08-09 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-18-mock-runtime` 的 `codex/task-18-mock-runtime` 分支实施 Task 18。基线为 pytest `36 passed`。实施分为四个 TDD 单元：严格 Mock 场景解析的红灯为缺少 `code_agent.application`，绿灯为 `2 passed`；审批主循环的红灯为缺少 `ApprovalResolution`，绿灯为新增审批测试和既有循环测试 `2 passed`；SQLite 状态与审批持久化的红灯为缺少 `update_task`，绿灯为存储测试 `3 passed`；TaskService/CLI 集成的红灯为缺少 `TaskService`。集成绿灯阶段发现 SQLite 对不存在的 `.code-agent` 父目录直接连接会失败，按 `superpowers:systematic-debugging` 复现并定位到 `SQLiteStore.__init__`，新增最小回归测试后由存储层创建父目录。最终验证：pytest `44 passed`（1 个既有 Starlette 弃用警告）、Ruff 通过、Mypy 在 28 个源文件中无错误，机制演示输出 `guardrail=denied`、`feedback_loop=succeeded`、`focus_mechanism=passed`。
