@@ -226,7 +226,7 @@ git commit -m "feat: prompt for governed loop actions"
 - 产生：`SQLiteStore.save_approval(approval: Approval) -> Approval`
 - 产生：`SQLiteStore.get_approval(approval_id: str) -> Approval | None`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 追加到 `tests/integration/test_storage.py`：
 
@@ -247,7 +247,7 @@ def test_task_status_and_approval_roundtrip(tmp_path) -> None:
     assert store.get_approval(approval.id) == approval
 ```
 
-- [ ] **步骤 2：运行测试并确认红灯**
+- [x] **步骤 2：运行测试并确认红灯**
 
 运行：
 
@@ -257,7 +257,7 @@ def test_task_status_and_approval_roundtrip(tmp_path) -> None:
 
 预期：因缺少 `update_task` 而失败。
 
-- [ ] **步骤 3：实现最小存储方法**
+- [x] **步骤 3：实现最小存储方法**
 
 在 `SQLiteStore.__init__` 的建表脚本中增加：
 
@@ -276,7 +276,7 @@ def get_approval(self, approval_id: str) -> Approval | None: ...
 
 所有对象以 `model_dump_json()` 保存，以 `model_validate_json()` 恢复；更新任务使用已有 `tasks(id, data)` 表的 `INSERT OR REPLACE`。
 
-- [ ] **步骤 4：运行测试并确认绿灯**
+- [x] **步骤 4：运行测试并确认绿灯**
 
 运行：
 
@@ -286,7 +286,7 @@ def get_approval(self, approval_id: str) -> Approval | None: ...
 
 预期：通过。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```powershell
 git add src/code_agent/storage.py tests/integration/test_storage.py

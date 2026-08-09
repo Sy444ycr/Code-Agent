@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from code_agent.core.events import Event
-from code_agent.core.models import LoopSpec, Task
+from code_agent.core.models import Approval, LoopSpec, Task
 
 
 class SQLiteStore:
@@ -19,7 +19,8 @@ class SQLiteStore:
             "CREATE TABLE IF NOT EXISTS specs(task_id TEXT PRIMARY KEY, data TEXT);"
             "CREATE TABLE IF NOT EXISTS events(id TEXT, task_id TEXT, sequence INTEGER, "
             "type TEXT, payload TEXT, created_at TEXT, PRIMARY KEY(task_id, sequence));"
-            "CREATE TABLE IF NOT EXISTS checkpoints(task_id TEXT PRIMARY KEY, payload TEXT)"
+            "CREATE TABLE IF NOT EXISTS checkpoints(task_id TEXT PRIMARY KEY, payload TEXT);"
+            "CREATE TABLE IF NOT EXISTS approvals(id TEXT PRIMARY KEY, data TEXT);"
         )
 
     def create_task(self, task: Task, loop_spec: LoopSpec) -> Task:
@@ -31,6 +32,31 @@ class SQLiteStore:
         )
         self.connection.commit()
         return task
+
+    def get_task(self, task_id: str) -> Task | None:
+        row = self.connection.execute("SELECT data FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return Task.model_validate_json(row[0]) if row else None
+
+    def update_task(self, task: Task) -> Task:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
+        )
+        self.connection.commit()
+        return task
+
+    def save_approval(self, approval: Approval) -> Approval:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO approvals VALUES (?, ?)",
+            (approval.id, approval.model_dump_json()),
+        )
+        self.connection.commit()
+        return approval
+
+    def get_approval(self, approval_id: str) -> Approval | None:
+        row = self.connection.execute(
+            "SELECT data FROM approvals WHERE id = ?", (approval_id,)
+        ).fetchone()
+        return Approval.model_validate_json(row[0]) if row else None
 
     def append_event(self, task_id: str, type: str, payload: dict[str, object]) -> Event:
         sequence = self.connection.execute(
