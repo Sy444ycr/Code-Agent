@@ -20,6 +20,8 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 
 2026-07-13 根据用户要求，将 `PLAN.md` 调整为明确的 TDD 执行版：新增 `TDD Execution Contract`，要求每个行为变更必须先写失败测试、确认红灯、再写最小实现、确认绿灯、绿灯后重构，并在 `AGENT_LOG.md` 记录红绿证据。此次调整只修改计划与过程文档，不编写实现代码。
 
+2026-08-09 用户确认 `docs/superpowers/specs/2026-08-09-task-service-design.md` 中的 Task 18 设计：先实现单机、单任务、Mock LLM 的 CLI 端到端闭环，采用 JSON 场景文件和即时 `y/a/n` 审批；真实 Provider、API 后台任务、WebUI 与并发任务留到后续独立阶段。随后使用 `superpowers:writing-plans` 将该设计拆分为 Mock 场景解析、审批主循环、SQLite 持久化和 TaskService/CLI 闭环四个严格 TDD 任务，计划保存至 `docs/superpowers/plans/2026-08-09-task-service-runtime.md`。用户明确授权继续实施，并要求在本文档记录实施和验证证据。
+
 ## 关键对话节选
 
 记录至少三轮关键交互，以及这些交互如何影响项目决策。
