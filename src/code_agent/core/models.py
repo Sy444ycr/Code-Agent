@@ -164,3 +164,8 @@ class Approval(BaseModel):
     reason: str
     actor: str = "user"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ApprovalResolution(BaseModel):
+    approved: bool
+    scope: Literal["once", "task"] = "once"

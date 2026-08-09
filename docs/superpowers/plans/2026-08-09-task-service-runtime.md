@@ -137,7 +137,7 @@ git commit -m "feat: load strict mock decision scenarios"
 - `LoopController.__init__` 接受可选 `approval_handler: Callable[[Task, ToolAction, PolicyDecision], ApprovalResolution] | None`。
 - `LoopController.run` 在 `ask` 时发出 `approval_requested`、调用处理器、发出 `approval_decided`；任务级授权使用 `risk.value` 加入同一任务的临时授权集合。
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `tests/unit/test_loop_approvals.py` 写入：
 
@@ -173,7 +173,7 @@ def test_task_grant_allows_second_shell_without_second_prompt(tmp_path) -> None:
     assert [event.type for event in result.events if event.type.startswith("approval_")] == ["approval_requested", "approval_decided"]
 ```
 
-- [ ] **步骤 2：运行测试并确认红灯**
+- [x] **步骤 2：运行测试并确认红灯**
 
 运行：
 
@@ -183,7 +183,7 @@ def test_task_grant_allows_second_shell_without_second_prompt(tmp_path) -> None:
 
 预期：因缺少 `ApprovalResolution` 和 `approval_handler` 而失败。
 
-- [ ] **步骤 3：实现最小审批循环**
+- [x] **步骤 3：实现最小审批循环**
 
 在 `models.py` 添加：
 
@@ -195,7 +195,7 @@ class ApprovalResolution(BaseModel):
 
 在 `loop.py` 保存 `approval_handler`，并在策略结果为 `ask` 时：创建 `approval_requested` 事件；没有处理器时返回 `needs_review`；处理器拒绝时创建 `approval_decided` 事件并返回 `needs_review`；处理器批准且范围为 `task` 时将 `policy.risk.value` 加入 `temporary_grants`；批准后执行当前工具调用并继续循环。调用 `policy.evaluate` 时传入 `temporary_grants`。
 
-- [ ] **步骤 4：运行测试并确认绿灯**
+- [x] **步骤 4：运行测试并确认绿灯**
 
 运行：
 
@@ -205,7 +205,7 @@ class ApprovalResolution(BaseModel):
 
 预期：通过。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```powershell
 git add src/code_agent/core/models.py src/code_agent/core/loop.py tests/unit/test_loop_approvals.py
