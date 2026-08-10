@@ -37,6 +37,8 @@ class TaskRunResult(BaseModel):
 
 
 ApprovalHandler = Callable[[Task, ToolAction, PolicyDecision], ApprovalResolution]
+EventCallback = Callable[[Event], None]
+CancelCheck = Callable[[], bool]
 
 
 class LoopController:
@@ -49,6 +51,8 @@ class LoopController:
         context: ContextBuilder | None = None,
         hooks: HookRunner | None = None,
         approval_handler: ApprovalHandler | None = None,
+        event_callback: EventCallback | None = None,
+        cancel_check: CancelCheck | None = None,
     ) -> None:
         self.provider = provider
         self.policy = policy
@@ -57,6 +61,8 @@ class LoopController:
         self.context = context or ContextBuilder(InMemoryMemoryStore())
         self.hooks = hooks or HookRunner()
         self.approval_handler = approval_handler
+        self.event_callback = event_callback
+        self.cancel_check = cancel_check
 
     def run(self, task: Task, loop_spec: LoopSpec) -> TaskRunResult:
         signals: list[FeedbackSignal] = []
@@ -70,10 +76,12 @@ class LoopController:
             nonlocal sequence
             sequence += 1
             events.append(
-                Event(
+                event := Event(
                     id=str(uuid4()), task_id=task.id, sequence=sequence, type=kind, payload=payload
                 )
             )
+            if self.event_callback is not None:
+                self.event_callback(event)
 
         def finish(status: TaskStatus, report: str) -> TaskRunResult:
             return TaskRunResult(
@@ -88,6 +96,8 @@ class LoopController:
         emit("task_started", {})
         self.hooks.run(HookPoint.ON_TASK_START, {"task": task})
         for _ in range(loop_spec.iteration_budget):
+            if self.cancel_check is not None and self.cancel_check():
+                return finish(TaskStatus.CANCELLED, "task cancelled")
             context = self.context.build(task, loop_spec, signals[-5:])
             decision = self.provider.decide(context)
             emit("decision_made", {"action": decision.action.value})
@@ -114,10 +124,14 @@ class LoopController:
                         {"approved": resolution.approved, "scope": resolution.scope},
                     )
                     if not resolution.approved:
+                        if self.cancel_check is not None and self.cancel_check():
+                            return finish(TaskStatus.CANCELLED, "task cancelled")
                         return finish(TaskStatus.NEEDS_REVIEW, "action rejected by user")
                     if resolution.scope == "task":
                         temporary_grants.add(policy.risk.value)
                 result = self.tools.execute(decision.tool_action, self._workspace(task))
+                if self.cancel_check is not None and self.cancel_check():
+                    return finish(TaskStatus.CANCELLED, "task cancelled")
                 changed_files.extend(result.changed_files)
                 signal = self.feedback.from_tool_result(result)
                 signals.append(signal)
