@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from pathlib import Path
 from threading import Condition, Event, RLock
 from typing import Literal
 from uuid import uuid4
 
+from code_agent.core.events import Event as TaskEvent
 from code_agent.core.feedback import FeedbackAdapter
 from code_agent.core.llm import MockLLMProvider
 from code_agent.core.loop import LoopController, TaskRunResult
@@ -16,7 +15,6 @@ from code_agent.core.models import (
     Approval,
     ApprovalResolution,
     LoopSpec,
-    PermissionMode,
     Task,
     TaskStatus,
     ToolAction,
@@ -120,10 +118,10 @@ class TaskManager:
 
     def _run(
         self, runtime: _Runtime, loop_spec: LoopSpec, decisions: list[AgentDecision]
-    ) -> None:
+    ) -> TaskRunResult:
         task = runtime.task
 
-        def emit(event) -> None:
+        def emit(event: TaskEvent) -> None:
             self.store.append_event(task.id, event.type, event.payload)
             with runtime.condition:
                 runtime.condition.notify_all()
@@ -176,6 +174,7 @@ class TaskManager:
         )
         with runtime.condition:
             runtime.condition.notify_all()
+        return result
 
 
 _TERMINAL_STATES = {
@@ -186,4 +185,3 @@ _TERMINAL_STATES = {
     TaskStatus.BUDGET_EXHAUSTED,
     TaskStatus.CANCELLED,
 }
-
