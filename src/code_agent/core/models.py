@@ -158,6 +158,7 @@ class SubTaskResult(BaseModel):
 
 class Approval(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    task_id: str | None = None
     tool_call_id: str
     status: Literal["pending", "approved", "rejected", "executed", "failed"] = "pending"
     scope: Literal["once", "task"] = "once"

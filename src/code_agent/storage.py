@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from threading import RLock
 from uuid import uuid4
 
 from code_agent.core.events import Event
@@ -14,6 +15,7 @@ class SQLiteStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = RLock()
         self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.executescript(
             "CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, data TEXT);"
@@ -25,60 +27,126 @@ class SQLiteStore:
         )
 
     def create_task(self, task: Task, loop_spec: LoopSpec) -> Task:
-        self.connection.execute(
-            "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
-        )
-        self.connection.execute(
-            "INSERT OR REPLACE INTO specs VALUES (?, ?)", (task.id, loop_spec.model_dump_json())
-        )
-        self.connection.commit()
+        with self._lock:
+            self.connection.execute(
+                "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
+            )
+            self.connection.execute(
+                "INSERT OR REPLACE INTO specs VALUES (?, ?)",
+                (task.id, loop_spec.model_dump_json()),
+            )
+            self.connection.commit()
         return task
 
     def get_task(self, task_id: str) -> Task | None:
-        row = self.connection.execute("SELECT data FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT data FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
         return Task.model_validate_json(row[0]) if row else None
 
     def update_task(self, task: Task) -> Task:
-        self.connection.execute(
-            "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
-        )
-        self.connection.commit()
+        with self._lock:
+            self.connection.execute(
+                "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
+            )
+            self.connection.commit()
         return task
 
     def save_approval(self, approval: Approval) -> Approval:
-        self.connection.execute(
-            "INSERT OR REPLACE INTO approvals VALUES (?, ?)",
-            (approval.id, approval.model_dump_json()),
-        )
-        self.connection.commit()
+        with self._lock:
+            self.connection.execute(
+                "INSERT OR REPLACE INTO approvals VALUES (?, ?)",
+                (approval.id, approval.model_dump_json()),
+            )
+            self.connection.commit()
         return approval
 
     def get_approval(self, approval_id: str) -> Approval | None:
-        row = self.connection.execute(
-            "SELECT data FROM approvals WHERE id = ?", (approval_id,)
-        ).fetchone()
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT data FROM approvals WHERE id = ?", (approval_id,)
+            ).fetchone()
         return Approval.model_validate_json(row[0]) if row else None
 
+    def get_spec(self, task_id: str) -> LoopSpec | None:
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT data FROM specs WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        return LoopSpec.model_validate_json(row[0]) if row else None
+
+    def list_pending_approvals(self, task_id: str) -> list[Approval]:
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT data FROM approvals ORDER BY rowid"
+            ).fetchall()
+        return [
+            approval
+            for (data,) in rows
+            if (approval := Approval.model_validate_json(data)).task_id == task_id
+            and approval.status == "pending"
+        ]
+
+    def decide_approval(
+        self,
+        approval_id: str,
+        approved: bool,
+        scope: str,
+        actor: str,
+    ) -> Approval:
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT data FROM approvals WHERE id = ?", (approval_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(approval_id)
+            current = Approval.model_validate_json(row[0])
+            if current.status != "pending":
+                raise ValueError(f"approval {approval_id} is already decided")
+            decided = current.model_copy(
+                update={
+                    "status": "approved" if approved else "rejected",
+                    "scope": scope,
+                    "actor": actor,
+                }
+            )
+            self.connection.execute(
+                "INSERT OR REPLACE INTO approvals VALUES (?, ?)",
+                (decided.id, decided.model_dump_json()),
+            )
+            self.connection.commit()
+        return decided
+
     def append_event(self, task_id: str, type: str, payload: dict[str, object]) -> Event:
-        sequence = self.connection.execute(
-            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE task_id = ?", (task_id,)
-        ).fetchone()[0]
-        event = Event(
-            id=str(uuid4()), task_id=task_id, sequence=sequence, type=type, payload=payload
-        )
-        self.connection.execute(
-            "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)",
-            (event.id, task_id, sequence, type, json.dumps(payload), event.created_at.isoformat()),
-        )
-        self.connection.commit()
+        with self._lock:
+            sequence = self.connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE task_id = ?", (task_id,)
+            ).fetchone()[0]
+            event = Event(
+                id=str(uuid4()), task_id=task_id, sequence=sequence, type=type, payload=payload
+            )
+            self.connection.execute(
+                "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    event.id,
+                    task_id,
+                    sequence,
+                    type,
+                    json.dumps(payload),
+                    event.created_at.isoformat(),
+                ),
+            )
+            self.connection.commit()
         return event
 
     def events_after(self, task_id: str, sequence: int) -> list[Event]:
-        rows = self.connection.execute(
-            "SELECT id, sequence, type, payload, created_at FROM events "
-            "WHERE task_id = ? AND sequence > ? ORDER BY sequence",
-            (task_id, sequence),
-        ).fetchall()
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT id, sequence, type, payload, created_at FROM events "
+                "WHERE task_id = ? AND sequence > ? ORDER BY sequence",
+                (task_id, sequence),
+            ).fetchall()
         return [
             Event(
                 id=row[0],
@@ -92,13 +160,16 @@ class SQLiteStore:
         ]
 
     def save_checkpoint(self, task_id: str, checkpoint: dict[str, object]) -> None:
-        self.connection.execute(
-            "INSERT OR REPLACE INTO checkpoints VALUES (?, ?)", (task_id, json.dumps(checkpoint))
-        )
-        self.connection.commit()
+        with self._lock:
+            self.connection.execute(
+                "INSERT OR REPLACE INTO checkpoints VALUES (?, ?)",
+                (task_id, json.dumps(checkpoint)),
+            )
+            self.connection.commit()
 
     def load_checkpoint(self, task_id: str) -> dict[str, object] | None:
-        row = self.connection.execute(
-            "SELECT payload FROM checkpoints WHERE task_id = ?", (task_id,)
-        ).fetchone()
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT payload FROM checkpoints WHERE task_id = ?", (task_id,)
+            ).fetchone()
         return json.loads(row[0]) if row else None
