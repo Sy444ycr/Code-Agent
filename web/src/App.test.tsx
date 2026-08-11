@@ -88,4 +88,18 @@ describe("App", () => {
       expect.stringContaining("task_completed"),
     ]);
   });
+
+  it("loads an initial task and posts cancellation", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "task-1", status: "running", workspace: "/repo", goal: "inspect", mode: "supervised", provider: "mock", pending_approvals: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "task-1", status: "cancelled", workspace: "/repo", goal: "inspect", mode: "supervised", provider: "mock", pending_approvals: [] })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App initialTaskId="task-1" />);
+    expect(await screen.findByText("running")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /cancel task/i }));
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/tasks/task-1/cancel", expect.objectContaining({ method: "POST" }));
+  });
 });
