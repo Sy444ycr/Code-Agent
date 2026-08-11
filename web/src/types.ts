@@ -36,3 +36,12 @@ export interface TaskCreateInput {
   mock_decisions: unknown[];
   acceptance_checks: string[];
 }
+
+export interface TaskEvent {
+  sequence: number;
+  type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export type ConnectionState = "connecting" | "realtime" | "reconnecting" | "ended" | "failed";

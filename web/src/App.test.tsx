@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { ApprovalPanel } from "./components/ApprovalPanel";
+import { Timeline } from "./components/Timeline";
 
 function jsonResponse(payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
@@ -52,5 +54,38 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: /start task/i }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(/json array/i);
+  });
+
+  it("submits task-scoped approval and disables duplicate decisions", async () => {
+    const user = userEvent.setup();
+    const onDecision = vi.fn(() => new Promise<void>(() => {}));
+    render(
+      <ApprovalPanel
+        approvals={[{ id: "approval-1", task_id: "task-1", reason: "shell", status: "pending" }]}
+        onDecision={onDecision}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /allow for task/i }));
+
+    expect(onDecision).toHaveBeenCalledWith("approval-1", true, "task");
+    expect(screen.getByRole("button", { name: /allow once/i })).toBeDisabled();
+  });
+
+  it("renders timeline events in sequence order", () => {
+    render(
+      <Timeline
+        connection="realtime"
+        events={[
+          { sequence: 2, type: "task_completed", payload: {}, created_at: "2026-08-11T00:00:02Z" },
+          { sequence: 1, type: "task_started", payload: {}, created_at: "2026-08-11T00:00:01Z" },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringContaining("task_started"),
+      expect.stringContaining("task_completed"),
+    ]);
   });
 });
