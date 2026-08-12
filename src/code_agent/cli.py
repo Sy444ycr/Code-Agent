@@ -10,7 +10,13 @@ import typer
 from code_agent import __version__, auth
 from code_agent.application.scenarios import MockScenarioError, load_mock_decisions
 from code_agent.application.task_service import TaskService
-from code_agent.core.llm import MockLLMProvider
+from code_agent.config import ProviderConfigurationError, resolve_provider_profile
+from code_agent.core.llm import (
+    LLMProvider,
+    MockLLMProvider,
+    OpenAICompatibleProvider,
+    ProviderRequestError,
+)
 from code_agent.core.models import ApprovalResolution, PermissionMode, Task, ToolAction
 from code_agent.core.policy import PolicyDecision
 from code_agent.storage import SQLiteStore
@@ -18,6 +24,49 @@ from code_agent.storage import SQLiteStore
 app = typer.Typer(help="Local-first coding agent")
 auth_app = typer.Typer(help="Manage provider credentials")
 app.add_typer(auth_app, name="auth")
+
+
+class CLIProviderError(ValueError):
+    """可安全显示给命令行用户的 Provider 错误。"""
+
+
+def _normalize_provider_name(provider: str) -> str:
+    try:
+        return auth.normalize_provider_name(provider)
+    except ValueError as exc:
+        raise CLIProviderError("Provider 名称无效。") from exc
+
+
+def build_provider(
+    name: str,
+    workspace: Path,
+    *,
+    allow_development_fallback: bool = False,
+) -> tuple[LLMProvider, str]:
+    provider_name = _normalize_provider_name(name)
+    try:
+        profile = resolve_provider_profile(provider_name, workspace)
+    except ProviderConfigurationError as exc:
+        if str(exc) == "未找到指定的 Provider 配置。":
+            raise CLIProviderError("Provider 档案不存在。") from exc
+        raise CLIProviderError(str(exc)) from exc
+    try:
+        api_key = auth.get_provider_secret(
+            provider_name,
+            allow_development_fallback=allow_development_fallback,
+        )
+    except Exception as exc:
+        raise CLIProviderError("无法访问 Provider 凭据。") from exc
+    if api_key is None:
+        raise CLIProviderError("Provider 密钥未配置。")
+    return (
+        OpenAICompatibleProvider(
+            base_url=profile.base_url,
+            model=profile.model,
+            api_key_getter=lambda: api_key,
+        ),
+        provider_name,
+    )
 
 
 @app.callback(invoke_without_command=True)
@@ -36,26 +85,30 @@ def run(
     checks: Annotated[list[str] | None, typer.Option("--check")] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    if provider != "mock":
-        typer.echo("only the mock provider is supported", err=True)
-        raise typer.Exit(code=2)
-    if mock_decisions is None:
-        typer.echo("--mock-decisions is required for the mock provider", err=True)
-        raise typer.Exit(code=2)
     try:
-        decisions = load_mock_decisions(mock_decisions)
-    except MockScenarioError as exc:
-        typer.echo(f"invalid mock scenario: {exc}", err=True)
+        provider_name = _normalize_provider_name(provider)
+        if provider_name == "mock":
+            if mock_decisions is None:
+                raise typer.BadParameter("mock Provider 必须提供 --mock-decisions")
+            try:
+                decisions = load_mock_decisions(mock_decisions)
+            except MockScenarioError as exc:
+                raise typer.BadParameter(f"Mock 场景无效：{exc}") from exc
+            llm_provider: LLMProvider = MockLLMProvider(decisions)
+        else:
+            if mock_decisions is not None:
+                raise typer.BadParameter("非 Mock Provider 不接受 --mock-decisions")
+            llm_provider, provider_name = build_provider(provider_name, workspace)
+    except CLIProviderError as exc:
+        typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
 
     state_dir = workspace / ".code-agent"
     state_dir.mkdir(parents=True, exist_ok=True)
     service = TaskService(SQLiteStore(state_dir / "state.db"), approval_handler=_prompt_approval)
     try:
-        result = service.run(
-            workspace, goal, mode, MockLLMProvider(decisions), "mock", checks or []
-        )
-    except ValueError as exc:
+        result = service.run(workspace, goal, mode, llm_provider, provider_name, checks or [])
+    except (ProviderRequestError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
 
@@ -102,16 +155,43 @@ def _prompt_approval(
 
 @auth_app.command("status")
 def auth_status(provider: str) -> None:
-    typer.echo(f"{provider}: {'configured' if auth.has_secret(provider) else 'missing'}")
+    provider_name = _auth_provider_name(provider)
+    try:
+        configured = auth.has_secret(provider_name)
+    except Exception as exc:
+        _credential_error(exc)
+    typer.echo(f"{provider_name}: {'configured' if configured else 'missing'}")
 
 
 @auth_app.command("set")
 def auth_set(provider: str) -> None:
-    auth.set_secret(provider, getpass.getpass(f"Enter {provider} API key: "))
+    provider_name = _auth_provider_name(provider)
+    secret = getpass.getpass(f"Enter {provider_name} API key: ")
+    try:
+        auth.set_secret(provider_name, secret)
+    except Exception as exc:
+        _credential_error(exc)
     typer.echo("configured")
 
 
 @auth_app.command("clear")
 def auth_clear(provider: str) -> None:
-    auth.clear_secret(provider)
+    provider_name = _auth_provider_name(provider)
+    try:
+        auth.clear_secret(provider_name)
+    except Exception as exc:
+        _credential_error(exc)
     typer.echo("cleared")
+
+
+def _auth_provider_name(provider: str) -> str:
+    try:
+        return _normalize_provider_name(provider)
+    except CLIProviderError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+
+
+def _credential_error(exc: Exception) -> None:
+    typer.echo("无法访问 Provider 凭据。", err=True)
+    raise typer.Exit(code=2) from exc

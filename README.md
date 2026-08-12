@@ -189,6 +189,26 @@ code-agent web
 
 `code-agent web` 计划默认提供 `http://127.0.0.1:8000`。最终发布前，README 将补充经过干净机器验证的安装步骤、系统依赖、钥匙串配置、公开 WebUI 地址和已知限制。
 
+### 配置 OpenAI-compatible Provider
+
+Provider 档案只保存非敏感的服务地址和模型名称。可以在项目的
+`.code-agent/config.toml` 中配置：
+
+```toml
+[providers.openai]
+base_url = "https://api.openai.com/v1"
+model = "gpt-5"
+```
+
+密钥应通过交互命令保存到系统钥匙串，不要写入 TOML、命令参数或仓库文件：
+
+```powershell
+code-agent auth set openai
+code-agent run . "实现目标" --provider openai
+```
+
+默认 Provider 仍为 `mock`；Mock 运行必须显式提供 `--mock-decisions` 场景文件。
+
 ## 测试策略
 
 开发过程严格遵循 TDD。默认 CI 只使用 Mock LLM，不依赖网络或真实凭据。
