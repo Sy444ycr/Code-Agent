@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from code_agent.auth import provider_secret_environment_names
 from code_agent.core.models import ToolAction, ToolResult
 from code_agent.core.workspace import Workspace
 
@@ -93,6 +94,8 @@ class ToolExecutor:
                     key: value
                     for key, value in os.environ.items()
                     if not re.search(r"(API_KEY|TOKEN|SECRET)$", key)
+                    and not re.fullmatch(r"CODE_AGENT_PROVIDER_.*_API_KEY", key)
+                    and key not in provider_secret_environment_names()
                 }
                 timeout = float(action.arguments.get("timeout_seconds", 30))
                 try:

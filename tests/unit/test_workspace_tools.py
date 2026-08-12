@@ -57,3 +57,20 @@ def test_shell_tool_runs_without_provider_keys(tmp_path, monkeypatch) -> None:
     assert str(tmp_path) in result.stdout
     assert "secret-value" not in result.stdout
     assert "None" in result.stdout
+
+
+def test_shell_removes_named_provider_development_key(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CODE_AGENT_PROVIDER_DEEPSEEK_API_KEY", "dev-secret")
+    result = ToolExecutor().execute(
+        ToolAction(
+            tool="shell",
+            arguments={
+                "command": (
+                    "python -c \"import os; "
+                    "print(os.getenv('CODE_AGENT_PROVIDER_DEEPSEEK_API_KEY'))\""
+                )
+            },
+        ),
+        Workspace(tmp_path),
+    )
+    assert result.stdout.strip() == "None"
