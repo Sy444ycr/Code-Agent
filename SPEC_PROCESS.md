@@ -38,6 +38,17 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 
 ## 实现阶段记录
 
+2026-08-13 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-22-multi-provider` 完成 Task 22 的多 Provider 收尾。所有 Python 命令使用仓库根目录共享 `.venv`，并设置 `PYTHONPATH=src`，以保证加载当前 worktree 源码。
+
+- Task 1：红灯为 Provider 配置接口尚不存在；绿灯完成双层档案解析、项目同名整体覆盖、严格字段和安全 URL 验证。
+- Task 2：红灯为命名 keyring 凭据及显式开发回退接口缺失；绿灯完成 keyring 优先、明文回退隔离和 shell 子进程密钥环境清理。
+- Task 3：红灯为安全 HTTP Provider 与统一错误类型缺失；绿灯完成 OpenAI-compatible 调用、JSON 决策校验及敏感错误信息隔离。
+- Task 4：红灯为服务/管理器仍使用旧的 Mock 决策调用链；绿灯完成 Provider 注入，运行时不再硬编码 Mock，持久化只保存 Provider 名称。
+- Task 5：红灯为 CLI 没有显式 Provider 选择、认证命令边界和安全错误转换；绿灯完成 `build_provider`、`auth set/status/clear`、无回退策略和离线回归，并修复无效 Mock 场景输入值泄露。
+- Task 6：新增 `tests/integration/test_provider_e2e.py`。先运行默认 E2E 命令，结果为 `1 skipped`；开关 `CODE_AGENT_RUN_PROVIDER_E2E=1` 未设置时，skipif 在档案解析、keyring 读取和 HTTP 前生效，故默认 CI 无 keyring 访问、无网络访问。可选的 `CODE_AGENT_PROVIDER_E2E_NAME` 默认为 `openai`，仅选择非敏感档案。
+
+最终执行 `python -m pytest -q`、`ruff check .` 和 `mypy src`；结果与具体警告数记录在 Task 6 报告。真实 E2E 未启用，因此没有 Provider、密钥或响应正文可记录。文档要求真实 E2E 必须同时显式设置开关、配置非敏感档案并运行 `auth set <name>`；keyring 是首选，开发回退必须由调用方显式允许，且明文/进程可见风险已说明。环境限制为 linked worktree 没有独立 `.venv`，以及 pytest 保留既有 FastAPI/Starlette 弃用警告。
+
 冷启动验证完成后，在隔离 worktree 中按 Task 1–17 执行严格 TDD。每个任务均记录红灯、绿灯、静态检查和提交；Windows 环境缺少 `make` 时，使用等价的 pytest、Ruff 和 Mypy 命令验证底层行为。
 
 2026-08-09 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-18-mock-runtime` 的 `codex/task-18-mock-runtime` 分支实施 Task 18。基线为 pytest `36 passed`。实施分为四个 TDD 单元：严格 Mock 场景解析的红灯为缺少 `code_agent.application`，绿灯为 `2 passed`；审批主循环的红灯为缺少 `ApprovalResolution`，绿灯为新增审批测试和既有循环测试 `2 passed`；SQLite 状态与审批持久化的红灯为缺少 `update_task`，绿灯为存储测试 `3 passed`；TaskService/CLI 集成的红灯为缺少 `TaskService`。集成绿灯阶段发现 SQLite 对不存在的 `.code-agent` 父目录直接连接会失败，按 `superpowers:systematic-debugging` 复现并定位到 `SQLiteStore.__init__`，新增最小回归测试后由存储层创建父目录。最终验证：pytest `44 passed`（1 个既有 Starlette 弃用警告）、Ruff 通过、Mypy 在 28 个源文件中无错误，机制演示输出 `guardrail=denied`、`feedback_loop=succeeded`、`focus_mechanism=passed`。

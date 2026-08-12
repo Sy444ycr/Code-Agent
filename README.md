@@ -209,6 +209,21 @@ code-agent run . "实现目标" --provider openai
 
 默认 Provider 仍为 `mock`；Mock 运行必须显式提供 `--mock-decisions` 场景文件。
 
+环境变量和被 Git 忽略的 `.env` 仅是开发回退：调用方必须显式允许该回退；其中的值是明文，并且可能被同一进程或其诊断环境看到。生产和日常使用应优先通过 `code-agent auth set <name>` 保存密钥到系统 keyring。`.env.example` 不含真实密钥。
+
+### 可选真实 Provider E2E
+
+默认测试和 CI 均离线运行，真实 Provider E2E 默认跳过，不会读取 keyring 或发送 HTTP 请求。只有在需要人工验证已配置的 Provider 时，才设置下面两个非敏感环境变量：
+
+```powershell
+$env:CODE_AGENT_RUN_PROVIDER_E2E = "1"
+$env:CODE_AGENT_PROVIDER_E2E_NAME = "openai"
+code-agent auth set openai
+python -m pytest tests/integration/test_provider_e2e.py -q
+```
+
+`CODE_AGENT_PROVIDER_E2E_NAME` 只选择 Provider 档案，默认值是 `openai`，绝不能保存密钥。运行前须在项目或用户配置中创建对应的非敏感档案，并用 `auth set <name>` 写入凭据。启用后仅记录 Provider 名称、命令和结果，不记录密钥或响应正文。
+
 ## 测试策略
 
 开发过程严格遵循 TDD。默认 CI 只使用 Mock LLM，不依赖网络或真实凭据。

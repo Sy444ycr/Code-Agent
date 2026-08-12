@@ -1,5 +1,16 @@
 # AGENT_LOG
 
+## 2026-08-13 — Task 22：多 Provider 收尾验证
+
+- Task 1 红灯为缺少 Provider 配置解析接口；绿灯为 `test_config.py` 通过，完成双层档案、同名整体覆盖、未知字段拒绝和 HTTP(S) URL 规则。
+- Task 2 红灯为缺少命名凭据和开发回退接口；绿灯为认证与子进程环境回归通过，完成 keyring 优先、显式开发回退及 Provider 密钥环境清理。
+- Task 3 红灯为缺少安全 HTTP Provider 错误类型和响应验证；绿灯为 LLM 单测通过，完成 OpenAI-compatible 请求、结构化决策验证和不回显敏感异常。
+- Task 4 红灯为运行时仍以旧签名和硬编码 Mock 构造 Provider；绿灯为服务、管理器、API 和 CLI 回归通过，Provider 已由边界注入且仅名称持久化。
+- Task 5 红灯为 CLI 缺少 `build_provider`、显式选择与认证边界；绿灯为 CLI/API 离线回归通过，非 Mock Provider 不回退到 Mock，并修复无效 Mock 场景不得回显输入值。
+- Task 6 先新增受 `CODE_AGENT_RUN_PROVIDER_E2E=1` 保护的真实 Provider E2E；默认命令 `python -m pytest tests/integration/test_provider_e2e.py -q` 返回 `1 skipped`。skipif 在 `build_provider`、keyring 和 HTTP 请求之前生效，默认 CI 保持离线。
+- 文档明确：档案仅含非敏感地址和模型；密钥优先 `code-agent auth set <name>` 写入 keyring；开发环境变量回退必须显式允许，且明文对进程可见；E2E 同时要求开关、非敏感档案和 `auth set <name>`，名称默认 `openai` 且不承载密钥。
+- 最终验证命令及结果记录于本任务报告；未启用真实 E2E、未读取 keyring、未访问网络。环境限制：linked worktree 不含独立 `.venv`，命令使用仓库根目录共享虚拟环境并设置 `PYTHONPATH=src`；pytest 的既有 FastAPI/Starlette 弃用警告须如实保留。
+
 ## 2026-08-12 — Task 20：补跑 Playwright 浏览器验收
 
 - Chromium 下载在本环境再次等待 5 分钟后超时；检测到本机已安装 Microsoft Edge，用户授权改用 Playwright 的 `msedge` 通道执行同一份 E2E 用例。`web/playwright.config.ts` 现显式声明 `Microsoft Edge` 项目，并保留本地 Vite WebServer。
