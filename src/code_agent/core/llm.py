@@ -63,7 +63,5 @@ class OpenAICompatibleProvider:
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             return AgentDecision.model_validate_json(content)
-        except ProviderRequestError:
-            raise
         except Exception as exc:
             raise ProviderRequestError("Provider 请求失败。") from exc

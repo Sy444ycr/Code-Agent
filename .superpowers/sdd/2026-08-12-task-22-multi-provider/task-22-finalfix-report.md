@@ -48,3 +48,13 @@ C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest -q tests/unit/t
 - `CODE_AGENT_PROVIDER_OPENAI_API_KEY` 兼容形式保留。
 - 含 `_` 或 `-` 的开发回退环境变量名称现在采用新编码；这是消除别名、避免错误 Provider 读取密钥所必需的安全变化。
 - 未修改 HTTP/SSE 协议、WebUI、TUI、数据库结构或 Mock 默认选择逻辑。
+
+## 最终复审补充修复
+
+复审发现同步 CLI 仍存在一个边界漏洞：若注入的 `api_key_getter` 或 HTTP client 主动抛出带敏感文本的 `ProviderRequestError`，原实现会原样透传，CLI 捕获后会输出其字符串。为消除该路径，测试先改为注入 `ProviderRequestError("sentinel-secret-provider-error")`，要求调用方只收到固定 `Provider 请求失败。` 且不含 sentinel。
+
+- RED：`python.exe -m pytest -q tests/unit/test_llm.py` → `1 failed, 6 passed in 0.87s`；实际消息为 sentinel，证明测试准确覆盖泄漏。
+- 最小修复：移除 Provider 边界内对已有 `ProviderRequestError` 的原样透传；所有 getter、client、响应与解析异常均新建固定安全 `ProviderRequestError`，不使用原异常字符串。
+- 聚焦 GREEN：`python.exe -m pytest -q tests/unit/test_llm.py tests/integration/test_cli_runtime.py tests/integration/test_task_manager.py` → `19 passed in 2.22s`。
+- 本轮唯一一次完整默认套件：`python.exe -m pytest -q` → `114 passed, 1 skipped, 15 warnings in 12.67s`；跳过项和警告性质与前述一致。
+- 全仓 Ruff：`All checks passed!`；Mypy：`Success: no issues found in 30 source files`；`git diff --check` 通过。

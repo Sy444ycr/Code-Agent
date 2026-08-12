@@ -105,17 +105,17 @@ def test_arbitrary_provider_boundary_errors_are_sanitized(boundary: str) -> None
     assert sentinel not in str(exc_info.value)
 
 
-def test_existing_provider_request_error_is_not_rewrapped() -> None:
-    original = ProviderRequestError("fixed-safe-message")
+def test_injected_provider_request_error_is_sanitized() -> None:
+    sentinel = "sentinel-secret-provider-error"
 
     def fail() -> str:
-        raise original
+        raise ProviderRequestError(sentinel)
 
     provider = OpenAICompatibleProvider(
         "https://provider.example/v1", "model-x", fail, httpx.Client()
     )
 
-    with pytest.raises(ProviderRequestError) as exc_info:
+    with pytest.raises(ProviderRequestError, match="Provider 请求失败") as exc_info:
         provider.decide("context")
 
-    assert exc_info.value is original
+    assert sentinel not in str(exc_info.value)
