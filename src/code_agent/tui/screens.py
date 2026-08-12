@@ -146,15 +146,19 @@ class RunScreen(Screen[None]):
             return
         try:
             detail = await asyncio.to_thread(app.client.get_task, app.task_id)
-            event_response = await asyncio.to_thread(
-                app.client.get_events, app.task_id, app.last_sequence
-            )
         except TaskApiError:
             app.notify("刷新任务失败", severity="error")
             return
 
         app.task_detail = detail
-        self._append_events(event_response)
+        try:
+            event_response = await asyncio.to_thread(
+                app.client.get_events, app.task_id, app.last_sequence
+            )
+        except TaskApiError:
+            app.notify("刷新事件失败", severity="error")
+        else:
+            self._append_events(event_response)
         self._render_state()
 
         status = detail.get("status")

@@ -7,6 +7,7 @@ from code_agent.tui.screens import StartScreen
 
 
 class CodeAgentTui(App[None]):
+    DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
     TERMINAL_STATUSES = frozenset(
         {
             "succeeded",
@@ -24,8 +25,8 @@ class CodeAgentTui(App[None]):
         client: TaskApiClient | None = None,
     ) -> None:
         super().__init__()
-        self.api_base_url = api_base_url
-        self.client = client or (TaskApiClient(api_base_url) if api_base_url else None)
+        self.api_base_url = api_base_url or self.DEFAULT_API_BASE_URL
+        self.client = client if client is not None else TaskApiClient(self.api_base_url)
         self.task_id: str | None = None
         self.last_sequence = 0
         self.task_detail: dict[str, object] | None = None

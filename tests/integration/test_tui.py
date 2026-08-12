@@ -3,10 +3,11 @@ import threading
 from collections.abc import Callable
 from typing import Literal
 
+import httpx
 import pytest
 from textual.widgets import Input, Static
 
-from code_agent.tui.api import TaskApiError
+from code_agent.tui.api import TaskApiClient, TaskApiError
 from code_agent.tui.app import CodeAgentTui
 from code_agent.tui.screens import ApprovalScreen, ResultScreen, RunScreen
 
@@ -44,6 +45,7 @@ class RuntimeTaskApiClient(FakeTaskApiClient):
         self.cancel_calls = 0
         self.resume_calls = 0
         self.fail_next_task_read = False
+        self.fail_event_reads = False
         self.fail_cancel = False
         self.fail_resume = False
 
@@ -70,6 +72,8 @@ class RuntimeTaskApiClient(FakeTaskApiClient):
     def get_events(self, task_id: str, after: int) -> dict[str, object]:
         assert task_id == "task-1"
         self.event_afters.append(after)
+        if self.fail_event_reads:
+            raise TaskApiError("Task service is unavailable.")
         return {"events": self.events_for_after.get(after, [])}
 
     def decide_approval(
@@ -145,10 +149,24 @@ async def enter_run_screen(
 
 
 @pytest.mark.asyncio
-async def test_tui_starts_on_start_screen() -> None:
-    app = CodeAgentTui(api_base_url=None)
+async def test_default_tui_has_local_api_client_without_requesting_during_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def fail_on_request(client: httpx.Client, request: httpx.Request) -> httpx.Response:
+        del client
+        requests.append(request)
+        raise AssertionError("启动期间不应发起网络请求")
+
+    monkeypatch.setattr(httpx.Client, "send", fail_on_request)
+    app = CodeAgentTui()
+
+    assert isinstance(app.client, TaskApiClient)
+    assert app.api_base_url == "http://127.0.0.1:8000"
     async with app.run_test() as _pilot:
         assert app.screen.id == "start"
+        assert requests == []
 
 
 @pytest.mark.asyncio
@@ -383,6 +401,38 @@ async def test_poll_error_keeps_cursor_and_next_refresh_continues_from_it() -> N
         await screen.refresh_task()
         assert client.event_afters[-1] == 4
         assert app.last_sequence == 5
+
+
+@pytest.mark.asyncio
+async def test_terminal_detail_routes_to_result_when_event_refresh_fails() -> None:
+    client = RuntimeTaskApiClient(status="succeeded", result_report="任务完成")
+    client.fail_event_reads = True
+    app = CodeAgentTui(client=client)
+    app.events = [
+        {"sequence": 4, "type": "checkpoint", "payload": {"summary": "已有事件"}}
+    ]
+    app.last_sequence = 4
+    notifications: list[str] = []
+    app.notify = lambda message, **_kwargs: notifications.append(str(message))  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        app.task_id = "task-1"
+        app.push_screen(RunScreen(id="run"))
+        await pilot.pause()
+
+        assert isinstance(app.screen, ResultScreen)
+        assert app.task_detail is not None
+        assert app.task_detail["status"] == "succeeded"
+        assert app.last_sequence == 4
+        assert [event["sequence"] for event in app.events] == [4]
+        assert notifications == ["刷新事件失败"]
+        rendered = str(app.screen.query_one("#result-content", Static).render())
+        assert "任务完成" in rendered
+        assert "已有事件" in rendered
+
+        reads_after_result = (client.task_reads, len(client.event_afters))
+        await pilot.pause(0.55)
+        assert (client.task_reads, len(client.event_afters)) == reads_after_result
 
 
 @pytest.mark.asyncio
