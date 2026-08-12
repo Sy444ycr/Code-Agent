@@ -1,5 +1,12 @@
 # AGENT_LOG
 
+## 2026-08-12 — Task 21 / Task 4：质量验证与过程记录
+
+- 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-21-textual-api-console` 执行最终 Python 质量验证，并将当前 worktree 的 `src` 置于 `PYTHONPATH` 首位，避免共享虚拟环境的 editable 安装覆盖本分支源码。
+- 实际结果：`python -m pytest -q` 为 `79 passed, 15 warnings`；`ruff check .` 为 `All checks passed!`；`mypy src` 为 `Success: no issues found in 30 source files`。15 条警告为既有 FastAPI `on_event` 与 Starlette TestClient/httpx 弃用警告，未影响命令退出状态。
+- Task 21 的 Textual TUI 核心流程已由 `tests/integration/test_tui.py` 的 `run_test` 与可注入 fake client 覆盖；测试不发起真实网络请求，也不依赖浏览器或 Playwright。Task 3 的最终针对性结果为 `23 passed`，覆盖创建后进入运行观察、增量事件回放/去重、审批、取消/恢复、错误恢复和终态结果界面。
+- 已检查本任务变更的过程文档与任务报告，无占位语、凭据或不相关改动。Task 20 的 `npm run e2e` 仍未补跑：Chromium 两次下载均在网络阶段超时；因此不能将全仓浏览器 E2E 验收表述为通过。
+
 ## 2026-08-12 — Task 20（暂定完成，待补 Playwright）
 
 - 已在隔离分支 `codex/task-20-webui-console` 实现浏览器 WebUI 的 Mock 任务创建、任务详情、取消/恢复、审批决定、事件时间线、基础 SSE 接入和响应式布局。
