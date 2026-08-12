@@ -93,7 +93,7 @@ def run(
             try:
                 decisions = load_mock_decisions(mock_decisions)
             except MockScenarioError as exc:
-                raise typer.BadParameter(f"Mock 场景无效：{exc}") from exc
+                raise typer.BadParameter("Mock 场景无效。") from exc
             llm_provider: LLMProvider = MockLLMProvider(decisions)
         else:
             if mock_decisions is not None:

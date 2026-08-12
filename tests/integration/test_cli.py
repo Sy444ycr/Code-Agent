@@ -1,4 +1,5 @@
 import getpass
+import json
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,32 @@ def test_cli_help_lists_run_and_auth() -> None:
     assert result.exit_code == 0
     assert "run" in result.output
     assert "auth" in result.output
+
+
+def test_invalid_mock_scenario_does_not_expose_input_values(tmp_path: Path) -> None:
+    scenario = tmp_path / "decisions.json"
+    scenario.write_text(
+        json.dumps(
+            {
+                "decisions": [
+                    {
+                        "action": "complete",
+                        "api_key": "secret-value",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["run", str(tmp_path), "goal", "--mock-decisions", str(scenario)],
+    )
+
+    assert result.exit_code == 2
+    assert "secret-value" not in result.output
+    assert "Mock 场景无效。" in result.output
 
 
 def test_build_provider_resolves_profile_and_secret(
