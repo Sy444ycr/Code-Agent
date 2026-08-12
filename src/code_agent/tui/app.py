@@ -7,6 +7,17 @@ from code_agent.tui.screens import StartScreen
 
 
 class CodeAgentTui(App[None]):
+    TERMINAL_STATUSES = frozenset(
+        {
+            "succeeded",
+            "needs_review",
+            "blocked",
+            "failed",
+            "budget_exhausted",
+            "cancelled",
+        }
+    )
+
     def __init__(
         self,
         api_base_url: str | None = None,
