@@ -1,3 +1,5 @@
+import asyncio
+import threading
 from collections.abc import Callable
 from typing import Literal
 
@@ -93,6 +95,42 @@ class RuntimeTaskApiClient(FakeTaskApiClient):
         self.status = "running"
         return {"id": task_id, "status": self.status}
 
+
+class BlockingCancelTaskApiClient(RuntimeTaskApiClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_read_started = threading.Event()
+        self.release_first_read = threading.Event()
+        self._active_reads = 0
+        self.max_active_reads = 0
+        self._read_lock = threading.Lock()
+
+    def get_task(self, task_id: str) -> dict[str, object]:
+        assert task_id == "task-1"
+        with self._read_lock:
+            self._active_reads += 1
+            self.max_active_reads = max(self.max_active_reads, self._active_reads)
+        try:
+            self.task_reads += 1
+            if self.task_reads == 1:
+                snapshot = {
+                    "id": task_id,
+                    "status": "running",
+                    "goal": "Ship the TUI",
+                    "pending_approvals": [],
+                }
+                self.first_read_started.set()
+                assert self.release_first_read.wait(timeout=2)
+                return snapshot
+            return super().get_task(task_id)
+        finally:
+            with self._read_lock:
+                self._active_reads -= 1
+
+    def cancel_task(self, task_id: str) -> dict[str, object]:
+        response = super().cancel_task(task_id)
+        self.release_first_read.set()
+        return response
 
 async def enter_run_screen(
     app: CodeAgentTui, pilot: object, before_push: Callable[[], None] | None = None
@@ -272,6 +310,33 @@ async def test_cancel_refreshes_immediately_and_routes_to_result() -> None:
         assert client.cancel_calls == 1
         assert client.task_reads > reads_before_cancel
         assert isinstance(app.screen, ResultScreen)
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_slow_poll_queues_single_refresh_before_next_interval() -> None:
+    client = BlockingCancelTaskApiClient()
+    app = CodeAgentTui(client=client)
+
+    async with app.run_test() as pilot:
+        app.task_id = "task-1"
+        app.push_screen(RunScreen(id="run"))
+        assert await asyncio.to_thread(client.first_read_started.wait, 1)
+        screen = app.screen
+        assert isinstance(screen, RunScreen)
+
+        await screen.action_cancel_task()
+        for _ in range(25):
+            if isinstance(app.screen, ResultScreen):
+                break
+            await asyncio.sleep(0.01)
+
+        assert client.cancel_calls == 1
+        assert client.task_reads >= 2
+        assert client.max_active_reads == 1
+        assert isinstance(app.screen, ResultScreen)
+        reads_after_leave = client.task_reads
+        await pilot.pause(0.55)
+        assert client.task_reads == reads_after_leave
 
 
 @pytest.mark.asyncio

@@ -87,6 +87,7 @@ class RunScreen(Screen[None]):
         self._poll_timer: Timer | None = None
         self._poll_worker: Worker[None] | None = None
         self._refreshing = False
+        self._refresh_requested = False
 
     def compose(self) -> Iterator[Static]:
         yield Static("正在读取任务详情……", id="task-status")
@@ -126,34 +127,42 @@ class RunScreen(Screen[None]):
 
     async def refresh_task(self) -> None:
         if self._refreshing:
+            self._refresh_requested = True
             return
         self._refreshing = True
         try:
-            app = cast("CodeAgentTui", self.app)
-            if app.client is None or app.task_id is None:
-                app.notify("任务服务未配置", severity="error")
-                return
-            try:
-                detail = await asyncio.to_thread(app.client.get_task, app.task_id)
-                event_response = await asyncio.to_thread(
-                    app.client.get_events, app.task_id, app.last_sequence
-                )
-            except TaskApiError:
-                app.notify("刷新任务失败", severity="error")
-                return
-
-            app.task_detail = detail
-            self._append_events(event_response)
-            self._render_state()
-
-            status = detail.get("status")
-            approval = self._pending_approval(detail)
-            if status == "waiting_approval" and approval is not None:
-                app.push_screen(ApprovalScreen(approval, id="approval"))
-            elif isinstance(status, str) and status in app.TERMINAL_STATUSES:
-                app.push_screen(ResultScreen(id="result"))
+            while True:
+                self._refresh_requested = False
+                await self._refresh_once()
+                if not self._refresh_requested or not self.is_current:
+                    return
         finally:
             self._refreshing = False
+
+    async def _refresh_once(self) -> None:
+        app = cast("CodeAgentTui", self.app)
+        if app.client is None or app.task_id is None:
+            app.notify("任务服务未配置", severity="error")
+            return
+        try:
+            detail = await asyncio.to_thread(app.client.get_task, app.task_id)
+            event_response = await asyncio.to_thread(
+                app.client.get_events, app.task_id, app.last_sequence
+            )
+        except TaskApiError:
+            app.notify("刷新任务失败", severity="error")
+            return
+
+        app.task_detail = detail
+        self._append_events(event_response)
+        self._render_state()
+
+        status = detail.get("status")
+        approval = self._pending_approval(detail)
+        if status == "waiting_approval" and approval is not None:
+            app.push_screen(ApprovalScreen(approval, id="approval"))
+        elif isinstance(status, str) and status in app.TERMINAL_STATUSES:
+            app.push_screen(ResultScreen(id="result"))
 
     def _append_events(self, response: dict[str, object]) -> None:
         app = cast("CodeAgentTui", self.app)

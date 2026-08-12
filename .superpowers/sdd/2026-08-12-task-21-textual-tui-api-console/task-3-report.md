@@ -97,3 +97,49 @@ Success: no issues found in 30 source files
 ## 问题
 
 无阻塞问题。全量测试会报告既有 FastAPI `on_event` 与 Starlette TestClient/httpx 弃用警告。
+
+## 审阅修复：取消与在途轮询竞态
+
+审阅指出：取消成功后直接调用 `refresh_task()`，如果定时轮询仍在执行，旧实现会因
+`_refreshing` 为真而立即返回，导致“取消后立即刷新”请求被丢弃，只能等待下一次 500ms
+定时周期。
+
+### RED
+
+新增阻塞 fake client：首次 `get_task` 捕获取消前的 `running` 快照并阻塞，测试在该请求
+在途时触发取消，取消成功后释放首次读取。旧实现没有补发详情请求，因此稳定失败：
+
+```powershell
+$env:PYTHONPATH = "src"
+C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests/integration/test_tui.py::test_cancel_during_slow_poll_queues_single_refresh_before_next_interval -q
+```
+
+```text
+FAILED: assert client.task_reads >= 2
+1 failed in 1.35s
+```
+
+### GREEN
+
+将忙碌期间的刷新请求合并为一个 `_refresh_requested` 标记；当前刷新结束后，若运行屏仍为
+当前屏幕，则在同一 worker 内再执行一次详情→事件刷新。该机制不会并发启动第二个轮询，
+同时保证取消后的显式刷新不被丢弃。
+
+```text
+1 passed in 1.15s
+23 passed in 4.52s
+All checks passed!
+Success: no issues found in 1 source file
+```
+
+同一回归测试还断言：慢请求期间 `get_task` 最大并发数为 1；补偿刷新取得 `cancelled`
+详情并进入 ResultScreen 后，再跨过一个 500ms 周期也不会继续读取。
+
+提交前完整验证：
+
+```text
+23 passed in 4.53s
+79 passed, 15 warnings in 10.85s
+All checks passed!
+Success: no issues found in 30 source files
+```
