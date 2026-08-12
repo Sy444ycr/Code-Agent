@@ -1,5 +1,20 @@
 # AGENT_LOG
 
+## 2026-08-12 — Task 20（暂定完成，待补 Playwright）
+
+- 已在隔离分支 `codex/task-20-webui-console` 实现浏览器 WebUI 的 Mock 任务创建、任务详情、取消/恢复、审批决定、事件时间线、基础 SSE 接入和响应式布局。
+- 红绿证据：任务表单红灯为 2 项失败，绿灯为 Vitest `2 passed`；观察组件红灯为缺失组件，绿灯为 Vitest `4 passed`；REST 详情/取消红灯为详情未加载，绿灯为 Vitest `5 passed`。Vite build 均通过。
+- Playwright：已配置桌面和 390px 验收，首次运行因 Chromium 缺失失败；两次 `npx playwright install chromium` 均在下载阶段超时（最后一次等待 5 分钟无输出），因此 `npm run e2e` 尚未通过，需在网络可下载浏览器的环境补跑。
+- 用户于 2026-08-12 授权暂时将 Task 20 视为已完成，并继续 Task 21；不得将 Playwright 验收写为通过。
+- 代码提交：`8ac0a57`、`3f3e170`、`416ef28`、`b5d30f2`。
+
+## 2026-08-11 — Task 20 / Task 1
+
+- 红灯：`cd web; npm test -- --run src/App.test.tsx`，结果为 2 项失败；页面未调用 `POST /api/tasks`，且缺少 Mock 决策输入。
+- 绿灯：新增前端类型、`createTask` API 客户端及 `TaskForm` 后，同一命令为 `2 passed`；`npm run build` 通过。
+- 修正：首次绿灯检查发现 user-event 将 `{` 解析为按键描述符、API 泛型响应未完成运行时收窄；将测试改为字面量转义输入，并在客户端检查错误响应对象后通过。
+- 代码提交：`8ac0a57`（`feat: add web task creation client`）。
+
 ## 2026-08-09 — Task 18
 
 - 使用 `superpowers:brainstorming`、`writing-plans` 和 `executing-plans` 完成单机、单任务、Mock LLM CLI 闭环；在 `codex/task-18-mock-runtime` 隔离 worktree 中实施。

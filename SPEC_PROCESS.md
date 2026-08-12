@@ -51,3 +51,5 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 - 最终全量验证为 pytest `54 passed`、Ruff 通过、Mypy 通过。测试输出包含 15 个 FastAPI/Starlette 弃用警告，不影响退出状态。
 
 Task 19 的已知边界：运行时是单进程内存 TaskManager，服务重启后不自动恢复 worker，也不自动重放结果未知的危险动作；API 仍只支持 Mock Provider；SSE 客户端断开不会取消任务，客户端必须使用最后事件序号重新连接。
+
+2026-08-11 至 2026-08-12 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-20-webui-console` 的 `codex/task-20-webui-console` 分支实施 Task 20。设计规格为 `docs/superpowers/specs/2026-08-11-task-20-webui-console-design.md`，实施计划为 `docs/superpowers/plans/2026-08-11-task-20-webui-console.md`。WebUI 的 Vitest 从 2 项基线测试扩展为 5 项，通过；Vite build 通过；Python 基线为 pytest `54 passed`、Ruff 通过、Mypy 通过。已配置 Playwright 桌面和 390px 验收，但 Chromium 未安装，连续两次浏览器下载在网络阶段超时，故 `npm run e2e` 未通过。用户授权暂时将 Task 20 标记完成并继续 Task 21；该任务保留“需补跑 Playwright”验收项，不得表述为全量验证通过。
