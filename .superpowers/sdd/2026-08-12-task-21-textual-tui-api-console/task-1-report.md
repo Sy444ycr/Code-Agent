@@ -69,3 +69,47 @@ Success: no issues found in 1 source file
 - 已核对错误消息不会包含 HTTP 响应正文或异常内部细节。
 - `git diff --check` 对已跟踪内容无空白错误；新增文件以 no-index 检查也无空白错误（Git 仅提示仓库的 CRLF 转换策略）。
 - 修改范围仅为任务指定的 API 模块、集成测试及本任务报告。
+
+## 审阅修复：创建任务负载透传
+
+审阅发现 `create_task(workspace, goal)` 在客户端固定写入 `mode`、`provider` 与
+`acceptance_checks`，且没有承接 `mock_decisions`。这会丢失界面调用方选择的运行模式
+与模拟决策，根因是 API 边界不应重建由上层拥有的创建请求负载。
+
+### RED
+
+先将测试改为调用 `create_task(task_payload)`，其中 `task_payload` 包含
+`mode: "plan"`、`mock_decisions` 和 `acceptance_checks`，并断言 POST 正文逐字段保留。
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests/integration/test_tui_api.py -q
+```
+
+输出：
+
+```text
+TypeError: TaskApiClient.create_task() missing 1 required positional argument: 'goal'
+1 failed, 2 passed in 0.89s
+```
+
+### GREEN 与验证
+
+将 `create_task` 改为接收 `payload: dict[str, object]` 并直接作为 POST JSON 发送；将
+`decide_approval` 的 `scope` 标注收紧为 `Literal["once", "task"]`，且继续固定
+`actor: "tui-user"`。
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests/integration/test_tui_api.py -q
+C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m ruff check src/code_agent/tui/api.py tests/integration/test_tui_api.py
+C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m mypy src/code_agent/tui/api.py
+```
+
+输出：
+
+```text
+3 passed in 0.57s
+All checks passed!
+Success: no issues found in 1 source file
+```

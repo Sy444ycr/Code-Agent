@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 
@@ -14,18 +14,8 @@ class TaskApiClient:
         self._base_url = base_url.rstrip("/")
         self._client = client or httpx.Client()
 
-    def create_task(self, workspace: str, goal: str) -> dict[str, object]:
-        return self._request(
-            "POST",
-            "/api/tasks",
-            json={
-                "workspace": workspace,
-                "goal": goal,
-                "mode": "supervised",
-                "provider": "mock",
-                "acceptance_checks": [],
-            },
-        )
+    def create_task(self, payload: dict[str, object]) -> dict[str, object]:
+        return self._request("POST", "/api/tasks", json=payload)
 
     def get_task(self, task_id: str) -> dict[str, object]:
         return self._request("GET", f"/api/tasks/{task_id}")
@@ -40,7 +30,7 @@ class TaskApiClient:
         return self._request("POST", f"/api/tasks/{task_id}/resume")
 
     def decide_approval(
-        self, approval_id: str, *, approved: bool, scope: str
+        self, approval_id: str, *, approved: bool, scope: Literal["once", "task"]
     ) -> dict[str, object]:
         return self._request(
             "POST",

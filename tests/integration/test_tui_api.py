@@ -35,7 +35,15 @@ def test_task_api_client_uses_task_api_routes_and_payloads() -> None:
         httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
-    assert client.create_task("C:/repo", "Ship the TUI") == {"id": "task-1", "status": "running"}
+    task_payload = {
+        "workspace": "C:/repo",
+        "goal": "Ship the TUI",
+        "mode": "plan",
+        "provider": "mock",
+        "mock_decisions": [{"action": "complete", "completion_message": "ready"}],
+        "acceptance_checks": ["pytest -q"],
+    }
+    assert client.create_task(task_payload) == {"id": "task-1", "status": "running"}
     assert client.get_task("task-1") == {"id": "task-1", "status": "running"}
     assert client.get_events("task-1", after=1) == {
         "events": [{"sequence": 2, "type": "started"}]
@@ -54,13 +62,7 @@ def test_task_api_client_uses_task_api_routes_and_payloads() -> None:
         ("POST", "/api/tasks/task-1/resume"),
         ("POST", "/api/approvals/approval-1/decision"),
     ]
-    assert json.loads(requests[0].content) == {
-        "workspace": "C:/repo",
-        "goal": "Ship the TUI",
-        "mode": "supervised",
-        "provider": "mock",
-        "acceptance_checks": [],
-    }
+    assert json.loads(requests[0].content) == task_payload
     assert requests[2].url.params == httpx.QueryParams({"after": "1"})
     assert json.loads(requests[5].content) == {
         "approved": True,
