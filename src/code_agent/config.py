@@ -54,6 +54,8 @@ def _read_profiles(path: Path) -> dict[str, ProviderProfile]:
             raise ProviderConfigurationError("Provider 名称不能为空。")
         if not isinstance(values, Mapping):
             raise ProviderConfigurationError("Provider 配置无效。")
+        if set(values) - {"base_url", "model"}:
+            raise ProviderConfigurationError("Provider 配置包含未知字段。")
         if not isinstance(values.get("base_url"), str):
             raise ProviderConfigurationError("Provider URL 必须是字符串。")
         if not isinstance(values.get("model"), str) or not values["model"].strip():

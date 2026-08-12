@@ -35,3 +35,15 @@ def test_rejects_non_local_http_profile_before_provider_creation(tmp_path: Path)
 
     with pytest.raises(ProviderConfigurationError, match="HTTPS"):
         resolve_provider_profile("remote", tmp_path)
+
+
+def test_rejects_name_field_in_profile(tmp_path: Path) -> None:
+    config = tmp_path / ".code-agent"
+    config.mkdir()
+    (config / "config.toml").write_text(
+        '[providers.remote]\nname = "override"\n'
+        'base_url = "https://example.com/v1"\nmodel = "x"\n'
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="未知字段"):
+        load_provider_profiles(tmp_path)
