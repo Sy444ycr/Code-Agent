@@ -8,10 +8,9 @@ from uuid import uuid4
 
 from code_agent.core.events import Event as TaskEvent
 from code_agent.core.feedback import FeedbackAdapter
-from code_agent.core.llm import MockLLMProvider
+from code_agent.core.llm import LLMProvider
 from code_agent.core.loop import LoopController, TaskRunResult
 from code_agent.core.models import (
-    AgentDecision,
     Approval,
     ApprovalResolution,
     LoopSpec,
@@ -27,6 +26,7 @@ from code_agent.storage import SQLiteStore
 @dataclass
 class _Runtime:
     task: Task
+    provider: LLMProvider
     cancel_event: Event = field(default_factory=Event)
     condition: Condition = field(default_factory=lambda: Condition(RLock()))
     approvals: dict[str, ApprovalResolution] = field(default_factory=dict)
@@ -42,16 +42,16 @@ class TaskManager:
         self._runtimes: dict[str, _Runtime] = {}
         self._lock = RLock()
 
-    def submit(self, task: Task, loop_spec: LoopSpec, decisions: list[AgentDecision]) -> Task:
+    def submit(self, task: Task, loop_spec: LoopSpec, provider: LLMProvider) -> Task:
         with self._lock:
             if task.id in self._runtimes:
                 raise ValueError(f"task {task.id} is already running")
             self.store.create_task(task, loop_spec)
             running = task.model_copy(update={"status": TaskStatus.RUNNING})
             self.store.update_task(running)
-            runtime = _Runtime(task=running)
+            runtime = _Runtime(task=running, provider=provider)
             self._runtimes[task.id] = runtime
-            runtime.future = self.executor.submit(self._run, runtime, loop_spec, decisions)
+            runtime.future = self.executor.submit(self._run, runtime, loop_spec)
         return running
 
     def get_task(self, task_id: str) -> Task | None:
@@ -116,9 +116,7 @@ class TaskManager:
             raise KeyError(task_id)
         return runtime
 
-    def _run(
-        self, runtime: _Runtime, loop_spec: LoopSpec, decisions: list[AgentDecision]
-    ) -> TaskRunResult:
+    def _run(self, runtime: _Runtime, loop_spec: LoopSpec) -> TaskRunResult:
         task = runtime.task
 
         def emit(event: TaskEvent) -> None:
@@ -148,7 +146,7 @@ class TaskManager:
 
         try:
             loop = LoopController(
-                provider=MockLLMProvider(decisions),
+                provider=runtime.provider,
                 policy=PolicyEngine(),
                 tools=ToolExecutor(),
                 feedback=FeedbackAdapter(),

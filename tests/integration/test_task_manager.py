@@ -1,6 +1,7 @@
 import time
 
 from code_agent.application.task_manager import TaskManager
+from code_agent.core.llm import MockLLMProvider
 from code_agent.core.models import (
     AgentDecision,
     LoopSpec,
@@ -21,13 +22,30 @@ def wait_until(predicate, timeout: float = 2.0) -> None:
     raise AssertionError("condition not reached")
 
 
+def test_submit_uses_injected_provider(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    manager = TaskManager(store)
+    task = Task(workspace=str(tmp_path), goal="complete", mode=PermissionMode.PLAN)
+    provider = MockLLMProvider([AgentDecision(action="complete", completion_message="done")])
+
+    manager.submit(task, LoopSpec(goal="complete"), provider)
+    wait_until(lambda: store.get_task(task.id).status == TaskStatus.SUCCEEDED)
+
+    assert provider.contexts_seen
+    manager.shutdown()
+
+
 def test_submit_runs_in_background_and_persists_terminal_status(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "state.db")
     manager = TaskManager(store)
     task = Task(workspace=str(tmp_path), goal="complete", mode=PermissionMode.PLAN)
     spec = LoopSpec(goal="complete")
 
-    manager.submit(task, spec, [AgentDecision(action="complete", completion_message="done")])
+    manager.submit(
+        task,
+        spec,
+        MockLLMProvider([AgentDecision(action="complete", completion_message="done")]),
+    )
     wait_until(lambda: store.get_task(task.id).status == TaskStatus.SUCCEEDED)
 
     assert store.events_after(task.id, 0)[-1].type == "task_completed"
@@ -42,7 +60,7 @@ def test_api_approval_wakes_waiting_worker(tmp_path) -> None:
     manager.submit(
         task,
         spec,
-        [
+        MockLLMProvider([
             AgentDecision(
                 action="tool_call",
                 tool_action=ToolAction(
@@ -50,7 +68,7 @@ def test_api_approval_wakes_waiting_worker(tmp_path) -> None:
                 ),
             ),
             AgentDecision(action="complete", completion_message="done"),
-        ],
+        ]),
     )
 
     wait_until(lambda: store.get_task(task.id).status == TaskStatus.WAITING_APPROVAL)
@@ -67,14 +85,14 @@ def test_cancel_wakes_waiting_worker_and_persists_cancelled(tmp_path) -> None:
     manager.submit(
         task,
         LoopSpec(goal="shell"),
-        [
+        MockLLMProvider([
             AgentDecision(
                 action="tool_call",
                 tool_action=ToolAction(
                     tool="shell", arguments={"command": 'python -c "pass"'}
                 ),
             ),
-        ],
+        ]),
     )
 
     wait_until(lambda: store.get_task(task.id).status == TaskStatus.WAITING_APPROVAL)

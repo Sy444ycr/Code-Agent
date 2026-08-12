@@ -10,6 +10,7 @@ import typer
 from code_agent import __version__, auth
 from code_agent.application.scenarios import MockScenarioError, load_mock_decisions
 from code_agent.application.task_service import TaskService
+from code_agent.core.llm import MockLLMProvider
 from code_agent.core.models import ApprovalResolution, PermissionMode, Task, ToolAction
 from code_agent.core.policy import PolicyDecision
 from code_agent.storage import SQLiteStore
@@ -51,7 +52,9 @@ def run(
     state_dir.mkdir(parents=True, exist_ok=True)
     service = TaskService(SQLiteStore(state_dir / "state.db"), approval_handler=_prompt_approval)
     try:
-        result = service.run(workspace, goal, mode, decisions, checks or [])
+        result = service.run(
+            workspace, goal, mode, MockLLMProvider(decisions), "mock", checks or []
+        )
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc

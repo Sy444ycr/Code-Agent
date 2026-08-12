@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from code_agent.api.schemas import ApprovalDecisionRequest, TaskCreate
 from code_agent.application.task_manager import TaskManager
+from code_agent.core.llm import MockLLMProvider
 from code_agent.core.models import LoopSpec, Task, TaskStatus
 from code_agent.storage import SQLiteStore
 
@@ -41,7 +42,7 @@ def create_app(
             provider=request.provider,
         )
         spec = LoopSpec(goal=request.goal, acceptance_checks=request.acceptance_checks)
-        running = app.state.manager.submit(task, spec, request.mock_decisions)
+        running = app.state.manager.submit(task, spec, MockLLMProvider(request.mock_decisions))
         return _task_response(running, [])
 
     @app.get("/api/tasks/{task_id}")

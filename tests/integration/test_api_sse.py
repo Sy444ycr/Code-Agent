@@ -23,6 +23,7 @@ def test_create_task_returns_task_id(tmp_path) -> None:
     assert response.status_code == 201
     assert response.json()["id"]
     assert response.json()["status"] in {"pending", "running", "needs_review"}
+    assert response.json()["provider"] == "mock"
 
 
 def test_events_endpoint_replays_ordered_events(tmp_path) -> None:

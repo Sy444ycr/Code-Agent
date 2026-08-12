@@ -5,10 +5,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from code_agent.core.feedback import FeedbackAdapter
-from code_agent.core.llm import MockLLMProvider
+from code_agent.core.llm import LLMProvider
 from code_agent.core.loop import LoopController, TaskRunResult
 from code_agent.core.models import (
-    AgentDecision,
     Approval,
     ApprovalResolution,
     LoopSpec,
@@ -36,20 +35,23 @@ class TaskService:
         workspace: Path,
         goal: str,
         mode: PermissionMode,
-        decisions: list[AgentDecision],
+        provider: LLMProvider,
+        provider_name: str,
         acceptance_checks: list[str],
     ) -> TaskRunResult:
         resolved_workspace = workspace.resolve()
         if not resolved_workspace.is_dir():
             raise ValueError(f"workspace does not exist: {resolved_workspace}")
-        task = Task(workspace=str(resolved_workspace), goal=goal, mode=mode, provider="mock")
+        task = Task(
+            workspace=str(resolved_workspace), goal=goal, mode=mode, provider=provider_name
+        )
         loop_spec = LoopSpec(goal=goal, acceptance_checks=acceptance_checks)
         self.store.create_task(task, loop_spec)
         running_task = task.model_copy(update={"status": TaskStatus.RUNNING})
         self.store.update_task(running_task)
 
         loop = LoopController(
-            provider=MockLLMProvider(decisions),
+            provider=provider,
             policy=PolicyEngine(),
             tools=ToolExecutor(),
             feedback=FeedbackAdapter(),
