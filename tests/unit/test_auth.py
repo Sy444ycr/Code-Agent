@@ -29,3 +29,17 @@ def test_development_fallback_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert get_provider_secret("openai", allow_development_fallback=False) is None
     assert get_provider_secret("openai", allow_development_fallback=True) == "dev-secret"
+
+
+def test_development_fallback_names_do_not_alias_hyphen_and_underscore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("code_agent.auth.keyring.get_password", lambda *_: None)
+    monkeypatch.setenv("CODE_AGENT_PROVIDER_FOO_UBAR_API_KEY", "underscore-secret")
+    monkeypatch.setenv("CODE_AGENT_PROVIDER_FOO_HBAR_API_KEY", "hyphen-secret")
+
+    assert (
+        get_provider_secret("foo_bar", allow_development_fallback=True)
+        == "underscore-secret"
+    )
+    assert get_provider_secret("foo-bar", allow_development_fallback=True) == "hyphen-secret"

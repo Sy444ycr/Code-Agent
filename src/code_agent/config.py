@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from code_agent.auth import normalize_provider_name
+
 
 class AppConfig(BaseModel):
     api_base_url: str = "http://127.0.0.1:8000"
@@ -52,6 +54,12 @@ def _read_profiles(path: Path) -> dict[str, ProviderProfile]:
     for name, values in providers.items():
         if not isinstance(name, str) or not name.strip():
             raise ProviderConfigurationError("Provider 名称不能为空。")
+        try:
+            normalized_name = normalize_provider_name(name)
+        except ValueError as error:
+            raise ProviderConfigurationError("Provider 名称无效。") from error
+        if normalized_name in profiles:
+            raise ProviderConfigurationError("Provider 名称规范化后重复。")
         if not isinstance(values, Mapping):
             raise ProviderConfigurationError("Provider 配置无效。")
         if set(values) - {"base_url", "model"}:
@@ -61,7 +69,7 @@ def _read_profiles(path: Path) -> dict[str, ProviderProfile]:
         if not isinstance(values.get("model"), str) or not values["model"].strip():
             raise ProviderConfigurationError("Provider 模型不能为空。")
         try:
-            profiles[name] = ProviderProfile(name=name, **values)
+            profiles[normalized_name] = ProviderProfile(name=normalized_name, **values)
         except ValidationError as error:
             raise ProviderConfigurationError("Provider 配置包含未知字段。") from error
     return profiles
@@ -80,13 +88,23 @@ def resolve_provider_profile(
 ) -> ProviderProfile:
     profiles = load_provider_profiles(workspace, user_config_path)
     try:
-        profile = profiles[name]
-    except KeyError as error:
+        profile = profiles[normalize_provider_name(name)]
+    except (KeyError, ValueError) as error:
         raise ProviderConfigurationError("未找到指定的 Provider 配置。") from error
 
-    parsed = urlsplit(profile.base_url)
+    try:
+        parsed = urlsplit(profile.base_url)
+        port = parsed.port
+    except ValueError as error:
+        raise ProviderConfigurationError("Provider URL 必须是有效的 HTTP(S) 地址。") from error
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ProviderConfigurationError("Provider URL 必须是有效的 HTTP(S) 地址。")
+    if parsed.username is not None or parsed.password is not None:
+        raise ProviderConfigurationError("Provider URL 不得包含用户凭据。")
+    if parsed.query or parsed.fragment:
+        raise ProviderConfigurationError("Provider URL 不得包含查询参数或片段。")
+    if port is not None and not 1 <= port <= 65535:
+        raise ProviderConfigurationError("Provider URL 端口无效。")
     if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
         raise ProviderConfigurationError("非本地 Provider 必须使用 HTTPS。")
     return profile

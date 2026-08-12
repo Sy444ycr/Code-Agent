@@ -4,7 +4,6 @@ from collections.abc import Callable
 from typing import Protocol
 
 import httpx
-from pydantic import ValidationError
 
 from code_agent.core.models import AgentDecision
 
@@ -64,12 +63,7 @@ class OpenAICompatibleProvider:
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
             return AgentDecision.model_validate_json(content)
-        except (
-            httpx.HTTPError,
-            IndexError,
-            KeyError,
-            TypeError,
-            ValueError,
-            ValidationError,
-        ) as exc:
-            raise ProviderRequestError("Provider 返回无效响应") from exc
+        except ProviderRequestError:
+            raise
+        except Exception as exc:
+            raise ProviderRequestError("Provider 请求失败。") from exc

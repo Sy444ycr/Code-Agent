@@ -1,7 +1,9 @@
 import time
 
+import pytest
+
 from code_agent.application.task_manager import TaskManager
-from code_agent.core.llm import MockLLMProvider
+from code_agent.core.llm import MockLLMProvider, ProviderRequestError
 from code_agent.core.models import (
     AgentDecision,
     LoopSpec,
@@ -98,4 +100,32 @@ def test_cancel_wakes_waiting_worker_and_persists_cancelled(tmp_path) -> None:
     wait_until(lambda: store.get_task(task.id).status == TaskStatus.WAITING_APPROVAL)
     manager.cancel(task.id)
     wait_until(lambda: store.get_task(task.id).status == TaskStatus.CANCELLED)
+    manager.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("failure", "safe_report"),
+    [
+        (ProviderRequestError("sentinel-secret-provider"), "Provider 请求失败。"),
+        (RuntimeError("sentinel-secret-unexpected"), "任务执行失败。"),
+    ],
+)
+def test_background_failures_use_fixed_reports_without_persisting_exception_details(
+    tmp_path, failure: Exception, safe_report: str
+) -> None:
+    class FailingProvider:
+        def decide(self, context: str) -> AgentDecision:
+            raise failure
+
+    store = SQLiteStore(tmp_path / "state.db")
+    manager = TaskManager(store)
+    task = Task(workspace=str(tmp_path), goal="fail", mode=PermissionMode.PLAN)
+
+    manager.submit(task, LoopSpec(goal="fail"), FailingProvider())
+    wait_until(lambda: store.get_task(task.id).status == TaskStatus.FAILED)
+
+    event = store.events_after(task.id, 0)[-1]
+    assert event.payload["report"] == safe_report
+    assert "sentinel-secret" not in event.model_dump_json()
+    assert b"sentinel-secret" not in (tmp_path / "state.db").read_bytes()
     manager.shutdown()

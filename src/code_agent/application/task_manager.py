@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from code_agent.core.events import Event as TaskEvent
 from code_agent.core.feedback import FeedbackAdapter
-from code_agent.core.llm import LLMProvider
+from code_agent.core.llm import LLMProvider, ProviderRequestError
 from code_agent.core.loop import LoopController, TaskRunResult
 from code_agent.core.models import (
     Approval,
@@ -155,8 +155,10 @@ class TaskManager:
                 cancel_check=runtime.cancel_event.is_set,
             )
             result = loop.run(task, loop_spec)
-        except Exception as exc:
-            result = TaskRunResult(status=TaskStatus.FAILED, report=str(exc))
+        except ProviderRequestError:
+            result = TaskRunResult(status=TaskStatus.FAILED, report="Provider 请求失败。")
+        except Exception:
+            result = TaskRunResult(status=TaskStatus.FAILED, report="任务执行失败。")
         final_task = task.model_copy(update={"status": result.status})
         self.store.update_task(final_task)
         self.store.append_event(

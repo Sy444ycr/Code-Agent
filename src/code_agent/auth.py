@@ -18,7 +18,8 @@ def normalize_provider_name(provider: str) -> str:
 
 
 def _provider_development_secret_name(provider: str) -> str:
-    return f"CODE_AGENT_PROVIDER_{provider.upper().replace('-', '_')}_API_KEY"
+    encoded = provider.upper().replace("_", "_U").replace("-", "_H")
+    return f"CODE_AGENT_PROVIDER_{encoded}_API_KEY"
 
 
 def provider_secret_environment_names() -> set[str]:

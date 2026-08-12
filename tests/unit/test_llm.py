@@ -80,3 +80,42 @@ def test_provider_error_does_not_echo_secret_or_response_body() -> None:
 
     assert "secret-value" not in str(exc_info.value)
     assert "upstream-internal" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("boundary", ["api_key_getter", "client"])
+def test_arbitrary_provider_boundary_errors_are_sanitized(boundary: str) -> None:
+    sentinel = "sentinel-secret-boundary"
+
+    def fail() -> str:
+        raise RuntimeError(sentinel)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise RuntimeError(sentinel)
+
+    provider = OpenAICompatibleProvider(
+        "https://provider.example/v1",
+        "model-x",
+        fail if boundary == "api_key_getter" else lambda: "safe-key",
+        httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(ProviderRequestError, match="Provider 请求失败") as exc_info:
+        provider.decide("context")
+
+    assert sentinel not in str(exc_info.value)
+
+
+def test_existing_provider_request_error_is_not_rewrapped() -> None:
+    original = ProviderRequestError("fixed-safe-message")
+
+    def fail() -> str:
+        raise original
+
+    provider = OpenAICompatibleProvider(
+        "https://provider.example/v1", "model-x", fail, httpx.Client()
+    )
+
+    with pytest.raises(ProviderRequestError) as exc_info:
+        provider.decide("context")
+
+    assert exc_info.value is original
