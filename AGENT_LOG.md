@@ -1,5 +1,12 @@
 # AGENT_LOG
 
+## 2026-08-12 — Task 20：补跑 Playwright 浏览器验收
+
+- Chromium 下载在本环境再次等待 5 分钟后超时；检测到本机已安装 Microsoft Edge，用户授权改用 Playwright 的 `msedge` 通道执行同一份 E2E 用例。`web/playwright.config.ts` 现显式声明 `Microsoft Edge` 项目，并保留本地 Vite WebServer。
+- 先用 `npm.cmd ci` 按 `package-lock.json` 恢复本地遗漏的 Playwright 包；随后在 `web` 目录执行 `npm.cmd run e2e`，结果为 2 项通过：桌面视口创建 Mock 任务并显示审批控件，以及 390px 视口核心控件可见且无横向溢出。
+- 同次验证执行 `npm.cmd test -- --run`，结果为 Vitest `5 passed`；执行 `npm.cmd run build`，TypeScript 与 Vite 构建通过。Vite 输出一条既有配置迁移预告：未来 native config loader 不支持当前 CommonJS 加载的 ESM `vite.config.ts`，未影响退出状态。
+- Task 20 的浏览器 E2E 验收现已通过；验证浏览器为本机 Microsoft Edge，而非下载失败的 Playwright Chromium。
+
 ## 2026-08-12 — Task 21 / Task 4：质量验证与过程记录
 
 - 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-21-textual-api-console` 执行最终 Python 质量验证，并将当前 worktree 的 `src` 置于 `PYTHONPATH` 首位，避免共享虚拟环境的 editable 安装覆盖本分支源码。
