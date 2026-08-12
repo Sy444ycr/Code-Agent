@@ -4,11 +4,16 @@ from collections.abc import Callable
 from typing import Protocol
 
 import httpx
+from pydantic import ValidationError
 
 from code_agent.core.models import AgentDecision
 
 
 class ProviderExhaustedError(RuntimeError):
+    pass
+
+
+class ProviderRequestError(RuntimeError):
     pass
 
 
@@ -29,10 +34,17 @@ class MockLLMProvider:
 
 
 class OpenAICompatibleProvider:
-    def __init__(self, base_url: str, model: str, api_key_getter: Callable[[], str]) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key_getter: Callable[[], str],
+        client: httpx.Client | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key_getter = api_key_getter
+        self.client = client or httpx.Client(timeout=60)
 
     def decide(self, context: str) -> AgentDecision:
         payload = {
@@ -43,12 +55,21 @@ class OpenAICompatibleProvider:
                 "json_schema": {"schema": AgentDecision.model_json_schema()},
             },
         }
-        response = httpx.post(
-            f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key_getter()}"},
-            json=payload,
-            timeout=60,
-        )
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        return AgentDecision.model_validate_json(content)
+        try:
+            response = self.client.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key_getter()}"},
+                json=payload,
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            return AgentDecision.model_validate_json(content)
+        except (
+            httpx.HTTPError,
+            IndexError,
+            KeyError,
+            TypeError,
+            ValueError,
+            ValidationError,
+        ) as exc:
+            raise ProviderRequestError("Provider 返回无效响应") from exc
