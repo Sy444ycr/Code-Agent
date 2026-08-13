@@ -37,6 +37,10 @@ code-agent = "code_agent.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/code_agent"]
+include = ["src/code_agent/web_dist/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/code_agent/web_dist/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
