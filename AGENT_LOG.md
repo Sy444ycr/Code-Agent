@@ -160,3 +160,13 @@
 - 确定项目方向为 AI4SE 项目 A：Coding Agent Harness。
 - 在实现开始前添加项目文档占位文件。
 - 连接 GitHub 远程仓库并推送 `main` 分支。
+# 2026-08-13：Task 23
+
+- 使用 `superpowers:executing-plans` 在隔离 worktree `codex/task-23-lifecycle-provider` 中执行。
+- Task 1 红灯：ProviderFactory 模块不存在；绿灯：Provider/API 测试 `10 passed`，Ruff 与 Mypy 通过。
+- Task 2 红灯：artifact 路由不存在；绿灯：CLI/API 测试 `17 passed`，Ruff 与 Mypy 通过。
+- Task 3 红灯：TUI 无 Provider 输入；绿灯：TUI 测试 `29 passed`，Ruff 与 Mypy 通过。
+- Task 4 红灯：WebUI 无 Provider 控件；绿灯：Vitest `6 passed`，Vite/TypeScript build 通过。
+- Task 5 红灯：`web_assets` 与 `web` 命令不存在；绿灯：Python 全量 `124 passed, 1 skipped`，Ruff/Mypy、WebUI 测试/build、sdist/wheel、CLI help/web help 通过。
+- Task 6 红灯：四个 demo 入口不存在；绿灯：demo 验收 `5 passed`，bugfix 记录一次失败反馈并改变下一轮动作。
+- 已知警告：既有 FastAPI/Starlette `on_event` 弃用警告；Vite 配置存在 native config loader 迁移警告，均不影响退出状态。

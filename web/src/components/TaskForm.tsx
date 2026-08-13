@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import { createTask } from "../api";
-import type { PermissionMode, TaskDetail } from "../types";
+import type { PermissionMode, TaskCreateInput, TaskDetail } from "../types";
 
 interface TaskFormProps {
   onCreated: (task: TaskDetail) => void;
@@ -11,6 +11,7 @@ export function TaskForm({ onCreated }: TaskFormProps) {
   const [workspace, setWorkspace] = useState(".");
   const [goal, setGoal] = useState("");
   const [mode, setMode] = useState<PermissionMode>("supervised");
+  const [provider, setProvider] = useState("mock");
   const [mockDecisions, setMockDecisions] = useState("[]");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -22,29 +23,30 @@ export function TaskForm({ onCreated }: TaskFormProps) {
       return;
     }
 
-    let decisions: unknown;
-    try {
-      decisions = JSON.parse(mockDecisions);
-    } catch {
-      setError("Mock decisions must be a JSON array");
-      return;
-    }
-    if (!Array.isArray(decisions)) {
-      setError("Mock decisions must be a JSON array");
-      return;
+    let decisions: unknown[] | undefined;
+    if (provider === "mock") {
+      try {
+        const parsed: unknown = JSON.parse(mockDecisions);
+        if (!Array.isArray(parsed)) throw new Error("invalid");
+        decisions = parsed;
+      } catch {
+        setError("Mock decisions must be a JSON array");
+        return;
+      }
     }
 
     setSubmitting(true);
     setError("");
     try {
-      const task = await createTask({
+      const input: TaskCreateInput = {
         workspace,
         goal: goal.trim(),
         mode,
-        provider: "mock",
-        mock_decisions: decisions,
+        provider,
         acceptance_checks: [],
-      });
+      };
+      if (decisions) input.mock_decisions = decisions;
+      const task = await createTask(input);
       onCreated(task);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "请求失败");
@@ -72,8 +74,15 @@ export function TaskForm({ onCreated }: TaskFormProps) {
         </select>
       </label>
       <label>
+        Provider
+        <select aria-label="provider" value={provider} onChange={(event) => setProvider(event.target.value)}>
+          <option value="mock">mock</option>
+          <option value="openai">openai</option>
+        </select>
+      </label>
+      <label>
         Mock decisions
-        <textarea aria-label="mock decisions" value={mockDecisions} onChange={(event) => setMockDecisions(event.target.value)} />
+        <textarea aria-label="mock decisions" disabled={provider !== "mock"} value={mockDecisions} onChange={(event) => setMockDecisions(event.target.value)} />
       </label>
       <button disabled={submitting} type="submit">{submitting ? "Creating…" : "Start Task"}</button>
       {error && <p role="alert">{error}</p>}

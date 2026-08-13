@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { cancelTask, connectTaskEvents, decideApproval, getTask, resumeTask } from "./api";
+import { cancelTask, connectTaskEvents, decideApproval, getReport, getTask, resumeTask } from "./api";
 import { ApprovalPanel } from "./components/ApprovalPanel";
 import { TaskForm } from "./components/TaskForm";
 import { TaskSummary } from "./components/TaskSummary";
@@ -16,7 +16,14 @@ export default function App({ initialTaskId }: AppProps) {
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
 
-  useEffect(() => { if (taskId) void getTask(taskId).then(setTask).catch((caught) => setError(caught.message)); }, [taskId]);
+  useEffect(() => {
+    if (!taskId) return;
+    void getTask(taskId).then(async (next) => {
+      if (["succeeded", "needs_review", "blocked", "failed", "budget_exhausted", "cancelled"].includes(next.status)) {
+        try { setTask({ ...next, ...(await getReport(taskId)) }); } catch { setTask(next); }
+      } else setTask(next);
+    }).catch((caught) => setError(caught.message));
+  }, [taskId]);
   useEffect(() => {
     if (!taskId) return;
     let cursor = 0; let retry: ReturnType<typeof setTimeout> | undefined;

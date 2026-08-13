@@ -8,6 +8,8 @@
 
 ## Writing-plans 记录
 
+2026-08-13 按已确认的 Task 23 设计与实施计划执行：在隔离 worktree 中完成 ProviderFactory、API artifact、CLI 生命周期命令、TUI/WebUI Provider 贯通、`code-agent web` 静态资源托管和四类离线规格演示。每个子项目均先运行红灯测试，再实现最小代码并运行绿灯测试；最终证据见 `AGENT_LOG.md`。
+
 2026-07-11 使用 `superpowers:writing-plans` 将已确认的 `SPEC.md` 拆分为 17 个可执行任务，正式计划保存到 `PLAN.md` 与 `docs/superpowers/plans/2026-07-11-code-agent.md`。计划按 TDD 顺序组织：项目骨架、核心模型、治理策略、workspace 工具、Shell 与语言适配、反馈、LLM Provider、记忆与上下文、Hook、主循环、SubAgent、SQLite、API、CLI/TUI/WebUI、CI 与机制演示。
 
 本轮计划自查覆盖三项：规格覆盖、占位词扫描和接口命名一致性。占位词扫描命令为：

@@ -5,3 +5,4 @@ unit-test:
   script:
     - pip install -e ".[dev]"
     - make verify
+    - python -m build

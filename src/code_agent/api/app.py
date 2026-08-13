@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -8,10 +9,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from code_agent.api.schemas import ApprovalDecisionRequest, TaskCreate
+from code_agent.application.providers import ProviderFactoryError, build_provider
 from code_agent.application.task_manager import TaskManager
-from code_agent.core.llm import MockLLMProvider
 from code_agent.core.models import LoopSpec, Task, TaskStatus
 from code_agent.storage import SQLiteStore
+from code_agent.web_assets import mount_web_assets
 
 
 def create_app(
@@ -33,16 +35,22 @@ def create_app(
         workspace = Path(request.workspace).resolve()
         if not workspace.is_dir():
             raise HTTPException(status_code=400, detail="workspace does not exist")
-        if request.provider != "mock":
-            raise HTTPException(status_code=400, detail="only mock provider is supported")
+        try:
+            provider, provider_name = build_provider(
+                request.provider,
+                workspace,
+                mock_decisions=request.mock_decisions if request.provider == "mock" else None,
+            )
+        except ProviderFactoryError as exc:
+            raise HTTPException(status_code=400, detail="Provider 配置不可用。") from exc
         task = Task(
             workspace=str(workspace),
             goal=request.goal,
             mode=request.mode,
-            provider=request.provider,
+            provider=provider_name,
         )
         spec = LoopSpec(goal=request.goal, acceptance_checks=request.acceptance_checks)
-        running = app.state.manager.submit(task, spec, MockLLMProvider(request.mock_decisions))
+        running = app.state.manager.submit(task, spec, provider)
         return _task_response(running, [])
 
     @app.get("/api/tasks/{task_id}")
@@ -55,6 +63,35 @@ def create_app(
         response = _task_response(task, approvals)
         response["loop_spec"] = spec.model_dump(mode="json") if spec else None
         return response
+
+    @app.get("/api/tasks/{task_id}/report")
+    def get_report(task_id: str) -> dict[str, object]:
+        task = _require_task(task_id, app.state.store)
+        event = _completed_event(task_id, app.state.store)
+        payload = event.payload if event else {}
+        return {
+            "id": task.id,
+            "status": task.status.value,
+            "report": payload.get("report", ""),
+            "changed_files": payload.get("changed_files", []),
+            "feedback": payload.get("feedback", []),
+            "verification": payload.get("verification", []),
+        }
+
+    @app.get("/api/tasks/{task_id}/diff")
+    def get_diff(task_id: str) -> dict[str, object]:
+        task = _require_task(task_id, app.state.store)
+        try:
+            result = subprocess.run(
+                ["git", "-C", task.workspace, "diff", "--"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return {"id": task.id, "diff": ""}
+        return {"id": task.id, "diff": result.stdout if result.returncode == 0 else ""}
 
     @app.post("/api/tasks/{task_id}/cancel")
     def cancel_task(task_id: str) -> dict[str, object]:
@@ -123,6 +160,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"approval": approval.model_dump(mode="json")}
 
+    mount_web_assets(app)
     return app
 
 
@@ -131,6 +169,14 @@ def _require_task(task_id: str, store: SQLiteStore) -> Task:
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
     return task
+
+
+def _completed_event(task_id: str, store: SQLiteStore) -> Any | None:
+    events = store.events_after(task_id, 0)
+    for event in reversed(events):
+        if event.type == "task_completed":
+            return event
+    return None
 
 
 def _task_response(task: Task, approvals: list[Any]) -> dict[str, object]:
