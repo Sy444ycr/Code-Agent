@@ -205,6 +205,17 @@ code-agent web
 
 `code-agent web` 计划默认提供 `http://127.0.0.1:8000`。最终发布前，README 将补充经过干净机器验证的安装步骤、系统依赖、钥匙串配置、公开 WebUI 地址和已知限制。
 
+### 发布打包
+
+发布前需要 Python 3.12、GNU Make（Windows 请先安装并加入 `PATH`），以及可用的 Node.js/npm（用于 `web/` 中锁定的前端依赖）。在已安装 Python 开发依赖的工作区运行：
+
+```powershell
+pip install -e ".[dev]"
+make package
+```
+
+`make package` 是唯一的本地发布入口，按以下顺序执行：安装前端依赖、运行 Vitest、构建 Vite 产物、暂存 `web/dist` 到 Python 包、构建分发工件，并在临时虚拟环境中安装 wheel 和启动 WebUI 验收。默认不运行真实 Provider E2E，不读取 keyring 或 Provider 凭据。
+
 ### 配置 OpenAI-compatible Provider
 
 Provider 档案只保存非敏感的服务地址和模型名称。可以在项目的

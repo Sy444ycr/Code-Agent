@@ -40,6 +40,10 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 
 ## 实现阶段记录
 
+2026-08-13 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-24-web-package-release` 按 Task 24 计划完成 WebUI 发布链。新增发布顺序验收的红灯命令为 `$env:PYTHONPATH="src;."; .\.venv\Scripts\python.exe -m pytest tests/integration/test_package_install.py -q`，结果 `1 failed, 3 passed`：`make package` 不存在且 GitHub CI 的 Python build 先于 Web build。随后实现 `make package`，将前端依赖安装、Vitest、Vite build、资源暂存、Python build 和干净 wheel 安装验收固定为同一顺序；GitHub Actions 配置 Node 22，GitLab CI 的 `web-build` job 将 `web/dist` 作为 `package` job 的依赖工件，两个 CI 都不会默认运行真实 Provider E2E。绿灯为同一集成测试 `4 passed`。
+
+本机 Windows 未安装 GNU Make，`make package` 因命令不存在而无法直接启动；未将其误记为通过，而是顺序执行其完全等价的四个命令。结果：`npm.cmd ci` 成功；`npm.cmd test -- --run` 为 `2` 个测试文件、`6 passed`；`npm.cmd run build` 成功；资源暂存与 `python -m build` 成功；wheel 干净安装验收为 `4 passed`。Vite 输出既有 `configLoader: native` 迁移预告，退出码保持为 0。最终执行 `$env:PYTHONPATH="src"; .\.venv\Scripts\python.exe -m pytest -q` 得到 `134 passed, 1 skipped, 21 warnings`；Ruff 为 `All checks passed!`；Mypy 为 `Success: no issues found in 33 source files`。21 条警告为既有 FastAPI/Starlette 弃用提示。默认 E2E 仍跳过，未读取 keyring、Provider 凭据或访问真实 Provider。
+
 2026-08-13 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-22-multi-provider` 完成 Task 22 的多 Provider 收尾。所有 Python 命令使用仓库根目录共享 `.venv`，并设置 `PYTHONPATH=src`，以保证加载当前 worktree 源码。
 
 - Task 1：红灯为 Provider 配置接口尚不存在；绿灯完成双层档案解析、项目同名整体覆盖、严格字段和安全 URL 验证。

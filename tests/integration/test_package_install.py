@@ -159,6 +159,18 @@ def test_prepare_web_package_copies_frontend_dist(tmp_path: Path) -> None:
     assert (target / "assets" / "app.js").read_text(encoding="utf-8") == "console.log('WebUI')"
 
 
+def test_ci_and_makefile_run_web_build_before_python_package() -> None:
+    makefile = REPO_ROOT.joinpath("Makefile").read_text(encoding="utf-8")
+    github = REPO_ROOT.joinpath(".github", "workflows", "ci.yml").read_text(encoding="utf-8")
+    gitlab = REPO_ROOT.joinpath(".gitlab-ci.yml").read_text(encoding="utf-8")
+
+    assert "package:" in makefile
+    assert "prepare_web_package.py" in makefile
+    assert makefile.index("npm run build") < makefile.index("python -m build")
+    assert github.index("npm run build") < github.index("python -m build")
+    assert gitlab.index("npm run build") < gitlab.index("python -m build")
+
+
 def test_built_wheel_installs_with_web_assets_in_clean_venv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

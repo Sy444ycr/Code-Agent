@@ -1,5 +1,13 @@
 # AGENT_LOG
 
+## 2026-08-13 — Task 24：WebUI 打包、CI 与干净安装验收
+
+- 红灯：新增发布顺序验收后执行 `$env:PYTHONPATH="src;."; .\.venv\Scripts\python.exe -m pytest tests/integration/test_package_install.py -q`，结果为 `1 failed, 3 passed`；`Makefile` 缺少 `package` 目标，GitHub CI 也在 Python 打包之后运行前端构建。
+- 绿灯：新增 `make package`，固定执行 `npm ci`、Vitest、Vite build、`prepare_web_package.py`、`python -m build` 与 wheel 安装验收；GitHub Actions 使用 Node 22，GitLab 将 Web build 产物作为 package 阶段依赖，两者均在 Python 打包前完成前端 build 和资源暂存。相同针对性命令结果为 `4 passed`。
+- 发布链：本 Windows 环境未安装 GNU Make，`make package` 报“`make` 不是可识别命令”；因此按 Makefile 的完全等价命令逐步执行。`npm.cmd ci` 成功，Vitest 为 `2` 个文件、`6 passed`，Vite build 成功，`python -m build` 成功，wheel 干净安装验收为 `4 passed`。Vite 仍输出既有 `configLoader: native` 配置迁移预告，未影响退出状态。
+- 最终验证：`$env:PYTHONPATH="src"; .\.venv\Scripts\python.exe -m pytest -q` 为 `134 passed, 1 skipped, 21 warnings`；`.\.venv\Scripts\ruff.exe check .` 为 `All checks passed!`；`.\.venv\Scripts\mypy.exe src` 为 `Success: no issues found in 33 source files`。警告为既有 FastAPI `on_event` 与 Starlette TestClient/httpx 弃用提示。
+- 默认链路未设置 `CODE_AGENT_RUN_PROVIDER_E2E`，真实 Provider E2E 保持跳过；执行过程未读取 keyring、Provider 凭据或访问真实 Provider。
+
 ## 2026-08-13 — Task 22：多 Provider 收尾验证
 
 - Task 1 红灯为缺少 Provider 配置解析接口；绿灯为 `test_config.py` 通过，完成双层档案、同名整体覆盖、未知字段拒绝和 HTTP(S) URL 规则。

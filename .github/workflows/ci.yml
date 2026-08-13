@@ -7,7 +7,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
       - run: pip install -e ".[dev]"
+      - run: cd web && npm ci && npm test -- --run && npm run build
+      - run: python scripts/prepare_web_package.py
       - run: make verify
       - run: python -m build
-      - run: cd web && npm ci && npm test -- --run && npm run build
+      - run: python -m pytest tests/integration/test_package_install.py -q

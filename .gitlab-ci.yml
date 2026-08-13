@@ -1,8 +1,23 @@
-stages: [test]
-unit-test:
-  stage: test
+stages: [web, package]
+
+web-build:
+  stage: web
+  image: node:22-bookworm
+  script:
+    - cd web && npm ci && npm test -- --run && npm run build
+  artifacts:
+    paths:
+      - web/dist/
+
+package:
+  stage: package
   image: python:3.12
+  needs:
+    - job: web-build
+      artifacts: true
   script:
     - pip install -e ".[dev]"
+    - python scripts/prepare_web_package.py
     - make verify
     - python -m build
+    - python -m pytest tests/integration/test_package_install.py -q
