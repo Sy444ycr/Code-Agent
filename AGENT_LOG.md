@@ -1,5 +1,19 @@
 # AGENT_LOG
 
+## 2026-08-13 — Task 25 / Task 5：重启恢复端到端验收与中文过程记录
+
+- TDD 红灯：先在 `tests/integration/test_api_sse.py` 新增 `test_restart_recovery_stream_requires_manual_resume_and_preserves_order`，命令 `$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_restart_recovery_stream_requires_manual_resume_and_preserves_order -q` 首次失败；第一次为测试自身缺少 `Approval` 导入，修正后继续用同一条命令验证真实恢复链路。
+- TDD 绿灯：新增验收测试覆盖同一 `state.db` 中旧的待审批/未终态任务，在新 app 启动后被隔离为 `needs_review`，详情字段正确暴露 `goal`、`loop_spec.goal`、`recovery_required`、`recovery_reason` 与 `pending_approvals`；旧 approval 不自动执行，`resume` 后从头运行到 `succeeded`；事件序号严格递增，且包含 `recovery_required`、`recovery_started`、`task_completed`。目标命令最终结果为 `1 passed, 5 warnings`。
+- 针对性回归：`$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py -q` 结果为 `14 passed, 31 warnings`。
+- 最终验证：
+  - `$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest -q` → `158 passed, 1 skipped, 35 warnings`
+  - `C:\Users\sy444\Desktop\Agents\.venv\Scripts\ruff.exe check .` → `All checks passed!`
+  - `C:\Users\sy444\Desktop\Agents\.venv\Scripts\mypy.exe src` → `Success: no issues found in 33 source files`
+  - `web\npm.cmd test -- --run` → `2 passed (files), 8 passed (tests)`
+  - `web\npm.cmd run build` → 构建通过，`✓ built in 307ms`
+- warnings 记录：Python 侧仍为既有 `fastapi.testclient` / `starlette.testclient` 弃用警告，以及 FastAPI `on_event` 弃用警告；Web 侧仍为既有 Vite `configLoader: 'native'` 迁移预告，均未影响退出状态。
+- 恢复边界：本任务只验证“重启后隔离 + 人工 resume + 从头重跑 + 事件顺序”；不自动重放旧 approval，不验证 checkpoint 续跑位置，不触达真实 Provider E2E。另有一个现存 concern：隔离后、恢复前若直接拉取无活动 runtime 的 SSE stream，当前实现仍可能失败；因 brief 明确限制修改范围，本任务未扩展到源码修复。
+
 ## 2026-08-13 — Task 24：WebUI 打包、CI 与干净安装验收
 
 - 红灯：新增发布顺序验收后执行 `$env:PYTHONPATH="src;."; .\.venv\Scripts\python.exe -m pytest tests/integration/test_package_install.py -q`，结果为 `1 failed, 3 passed`；`Makefile` 缺少 `package` 目标，GitHub CI 也在 Python 打包之后运行前端构建。

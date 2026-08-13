@@ -5,7 +5,14 @@ from fastapi.testclient import TestClient
 
 import code_agent.api.app as api_app
 from code_agent.api.app import create_app
-from code_agent.core.models import AgentDecision, LoopSpec, Task, TaskRecovery, TaskStatus
+from code_agent.core.models import (
+    AgentDecision,
+    Approval,
+    LoopSpec,
+    Task,
+    TaskRecovery,
+    TaskStatus,
+)
 from code_agent.storage import SQLiteStore
 
 
@@ -272,6 +279,79 @@ def test_resume_rebuilds_mock_provider_after_startup_isolation(tmp_path) -> None
         assert "recovery_started" in event_types
         assert event_types[-1] == "task_completed"
         assert event_types.index("recovery_started") < event_types.index("task_completed")
+
+
+def test_restart_recovery_stream_requires_manual_resume_and_preserves_order(tmp_path) -> None:
+    state_path = tmp_path / "state.db"
+    old_app = create_app(state_path=state_path)
+    seeded_task = old_app.state.store.create_task(
+        Task(
+            workspace=str(tmp_path),
+            goal="stale-goal",
+            provider="mock",
+            status=TaskStatus.WAITING_APPROVAL,
+        ),
+        LoopSpec(goal="persisted-goal"),
+        recovery=TaskRecovery(
+            mock_decisions=[
+                AgentDecision(action="complete", completion_message="done after resume")
+            ]
+        ),
+    )
+    seeded_approval = old_app.state.store.save_approval(
+        Approval(
+            task_id=seeded_task.id,
+            tool_call_id="tool-1",
+            reason="shell requires approval",
+        )
+    )
+    old_app.state.manager.shutdown()
+
+    with TestClient(create_app(state_path=state_path)) as client:
+        detail = client.get(f"/api/tasks/{seeded_task.id}")
+
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "needs_review"
+        assert detail.json()["goal"] == "stale-goal"
+        assert detail.json()["loop_spec"]["goal"] == "persisted-goal"
+        assert detail.json()["recovery_required"] is True
+        assert detail.json()["recovery_reason"] == "服务重启后需人工复核"
+        assert detail.json()["resumable"] is True
+        assert detail.json()["pending_approvals"] == [
+            seeded_approval.model_dump(mode="json")
+        ]
+
+        events_before_resume = client.get(f"/api/tasks/{seeded_task.id}/events?after=0")
+        assert [event["type"] for event in events_before_resume.json()["events"]] == [
+            "recovery_required"
+        ]
+
+        resume = client.post(f"/api/tasks/{seeded_task.id}/resume")
+
+        assert resume.status_code == 200
+        wait_for_status(client, seeded_task.id, "succeeded")
+
+        final_detail = client.get(f"/api/tasks/{seeded_task.id}")
+        assert final_detail.status_code == 200
+        assert final_detail.json()["status"] == "succeeded"
+        assert final_detail.json()["goal"] == "persisted-goal"
+        assert final_detail.json()["recovery_required"] is False
+        assert final_detail.json()["recovery_reason"] is None
+        assert final_detail.json()["resumable"] is False
+
+        events = client.get(f"/api/tasks/{seeded_task.id}/events?after=0").json()["events"]
+        sequences = [event["sequence"] for event in events]
+        event_types = [event["type"] for event in events]
+
+        assert sequences == list(range(1, len(events) + 1))
+        assert event_types[0] == "recovery_required"
+        assert "recovery_started" in event_types
+        assert event_types[-1] == "task_completed"
+        assert event_types.index("recovery_required") < event_types.index("recovery_started")
+        assert event_types.index("recovery_started") < event_types.index("task_completed")
+        assert "approval_decided" not in event_types
+        assert events[-1]["payload"]["status"] == "succeeded"
+        assert events[-1]["payload"]["report"] == "done after resume"
 
 
 def test_resume_rejects_missing_workspace_without_starting_recovery(tmp_path) -> None:
