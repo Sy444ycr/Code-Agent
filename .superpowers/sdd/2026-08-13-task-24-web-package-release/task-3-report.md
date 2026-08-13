@@ -39,3 +39,24 @@ $env:PYTHONPATH="src;."; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe 
 - `git diff --check`：通过。
 - 完整发布链：`prepare_web_package.py`、集成测试（`3 passed in 77.36s`）和
   `python -m build` 均以退出码 0 完成。
+
+## 复审修复
+
+### RED
+
+复审后，测试改为自行运行 `npm ci` 和 `npm run build`，并使用 `python -m build --outdir`
+写入专用目录以避免复用 `dist/` 中的旧 wheel；同时新增静态资源、SPA 回退和
+`web_assets --check` 输出断言。执行测试得到 `1 failed, 2 passed`，失败断言为
+`assets_check.stdout == "Web assets available\\n"`，实际输出为空，证明模块入口尚未实现
+`--check` 合约。
+
+### GREEN
+
+在 `code_agent.web_assets` 中新增最小 CLI 入口：`--check` 仅检查 `static_dist_path()`，
+成功时输出 `Web assets available`，缺失时输出不含凭据的错误信息并返回 1。测试辅助同时：
+
+- 依据操作系统选择 `npm`/`npm.cmd`、venv 的 `bin`/`Scripts` 和 console entry 后缀；
+- 将子进程输出固定为 UTF-8 替换解码，消除 Windows 编码警告；
+- 从 `index.html` 提取实际 `/assets/...` 路径并断言 200，验证客户端路由 SPA 回退为根页面。
+
+GREEN 验证：`tests/integration/test_package_install.py -q` 为 `3 passed in 98.53s`。

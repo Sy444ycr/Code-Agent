@@ -5,7 +5,9 @@ import subprocess
 import sys
 import time
 import zipfile
+from os import name as os_name
 from pathlib import Path
+from re import findall
 
 import httpx
 import pytest
@@ -16,20 +18,34 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUEST_TIMEOUT_SECONDS = 10
 
 
-def run(python: Path | str, *arguments: str) -> subprocess.CompletedProcess[str]:
+def run(
+    executable: Path | str, *arguments: str, cwd: Path = REPO_ROOT
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [str(python), *arguments],
-        cwd=REPO_ROOT,
+        [str(executable), *arguments],
+        cwd=cwd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
         check=False,
     )
+
+
+def npm_executable() -> str:
+    return "npm.cmd" if os_name == "nt" else "npm"
+
+
+def venv_executable(venv_path: Path, name: str) -> Path:
+    scripts = "Scripts" if os_name == "nt" else "bin"
+    suffix = ".exe" if os_name == "nt" else ""
+    return venv_path / scripts / f"{name}{suffix}"
 
 
 def run_code_agent(venv_python: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [str(venv_python.parent / "code-agent.exe"), *arguments],
+        [str(venv_executable(venv_python.parent.parent, "code-agent")), *arguments],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -38,19 +54,24 @@ def run_code_agent(venv_python: Path, *arguments: str) -> subprocess.CompletedPr
     )
 
 
-def build_project_wheel(repo_root: Path) -> Path:
+def build_project_wheel(repo_root: Path, wheel_output: Path) -> Path:
+    frontend = repo_root / "web"
+    install = run(npm_executable(), "ci", cwd=frontend)
+    assert install.returncode == 0, install.stderr
+    build = run(npm_executable(), "run", "build", cwd=frontend)
+    assert build.returncode == 0, build.stderr
     prepare_web_package(repo_root)
-    result = run(sys.executable, "-m", "build", "--wheel")
+    result = run(sys.executable, "-m", "build", "--wheel", "--outdir", str(wheel_output))
     assert result.returncode == 0, result.stderr
-    wheels = sorted((repo_root / "dist").glob("code_agent-*.whl"), key=Path.stat)
-    assert wheels, "wheel build did not create dist/code_agent-*.whl"
-    return wheels[-1]
+    wheels = list(wheel_output.glob("code_agent-*.whl"))
+    assert len(wheels) == 1, "wheel build did not create exactly one wheel"
+    return wheels[0]
 
 
 def create_venv(path: Path) -> Path:
     result = run(sys.executable, "-m", "venv", str(path))
     assert result.returncode == 0, result.stderr
-    return path / "Scripts" / "python.exe"
+    return venv_executable(path, "python")
 
 
 def install_wheel(venv_python: Path, wheel: Path) -> None:
@@ -93,6 +114,12 @@ def process_exited(process: subprocess.Popen[str]) -> bool:
     return process.poll() is not None
 
 
+def static_asset_path(index_html: str) -> str:
+    assets = findall(r'(?:src|href)="(/assets/[^"]+)"', index_html)
+    assert assets, "built index.html does not reference a static asset"
+    return assets[0]
+
+
 def test_prepare_web_package_rejects_missing_frontend_dist(tmp_path: Path) -> None:
     (tmp_path / "src" / "code_agent").mkdir(parents=True)
 
@@ -116,30 +143,45 @@ def test_prepare_web_package_copies_frontend_dist(tmp_path: Path) -> None:
 
 
 def test_built_wheel_installs_with_web_assets_in_clean_venv(tmp_path: Path) -> None:
-    wheel = build_project_wheel(REPO_ROOT)
+    wheel = build_project_wheel(REPO_ROOT, tmp_path / "wheel-output")
     with zipfile.ZipFile(wheel) as archive:
         assert "code_agent/web_dist/index.html" in archive.namelist()
 
     venv_python = create_venv(tmp_path / "venv")
     install_wheel(venv_python, wheel)
 
-    assert run(venv_python, "-m", "code_agent.web_assets", "--check").returncode == 0
+    assets_check = run(venv_python, "-m", "code_agent.web_assets", "--check")
+    assert assets_check.returncode == 0
+    assert assets_check.stdout == "Web assets available\n"
+    assert assets_check.stdout == "Web assets available\n"
     assert run_code_agent(venv_python, "--help").returncode == 0
     assert run_code_agent(venv_python, "web", "--help").returncode == 0
 
     port = available_port()
     process = subprocess.Popen(
-        [str(venv_python.parent / "code-agent.exe"), "web", "--port", str(port)],
+        [str(venv_executable(venv_python.parent.parent, "code-agent")), "web", "--port", str(port)],
         cwd=tmp_path,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     try:
         root = wait_for_web_server(process, f"http://127.0.0.1:{port}/")
+        static_asset = httpx.get(
+            f"http://127.0.0.1:{port}{static_asset_path(root.text)}",
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        spa_fallback = httpx.get(
+            f"http://127.0.0.1:{port}/client/route", timeout=REQUEST_TIMEOUT_SECONDS
+        )
         api = httpx.get(f"http://127.0.0.1:{port}/api", timeout=REQUEST_TIMEOUT_SECONDS)
         assert root.status_code == 200
         assert '<div id="root">' in root.text
+        assert static_asset.status_code == 200
+        assert spa_fallback.status_code == 200
+        assert spa_fallback.text == root.text
         assert api.status_code == 404
     finally:
         stop_process(process)
