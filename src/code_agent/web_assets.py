@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 
@@ -27,6 +27,8 @@ def mount_web_assets(app: FastAPI) -> None:
 
     @app.get("/{path:path}")
     def serve_web(path: str) -> FileResponse:
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
         requested = (dist / path).resolve()
         if not requested.is_relative_to(dist.resolve()) or not requested.is_file():
             requested = dist / "index.html"

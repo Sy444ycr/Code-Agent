@@ -46,3 +46,4 @@ def test_package_assets_take_precedence_and_api_routes_are_not_spa_fallback(
     assert client.get("/").text == "package"
     assert client.get("/client/route").text == "package"
     assert client.get("/api/tasks/not-found").status_code == 404
+    assert client.get("/api/not-found").status_code == 404

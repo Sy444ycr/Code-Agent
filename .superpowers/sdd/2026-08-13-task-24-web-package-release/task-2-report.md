@@ -25,3 +25,10 @@ $env:PYTHONPATH='src'; & 'C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe
 ```
 
 结果：11 个测试通过；Ruff 无问题；mypy 在 33 个源文件中无问题。测试输出含既有 FastAPI/TestClient 弃用警告，未由本任务引入。
+
+## 审查修复：未匹配 API 路由不得进入 SPA 回退
+
+- 根因：catch-all 路由位于 API 路由之后，只能保护已声明的 API 路由；未声明的 `/api/not-found` 会匹配 catch-all 并返回 `index.html`。
+- RED：在集成测试中新增 `GET /api/not-found` 必须返回 404 的断言。修复前失败，实际状态为 200。
+- GREEN：catch-all 在解析静态文件前拒绝 `api` 与 `api/` 开头的路径，返回 404；已声明的 API 路由仍由其自身处理。
+- 修复后聚焦验证：`tests/integration/test_web_runtime.py` 通过（3 passed）。
