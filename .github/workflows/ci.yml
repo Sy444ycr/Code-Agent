@@ -9,4 +9,5 @@ jobs:
         with: {python-version: '3.12'}
       - run: pip install -e ".[dev]"
       - run: make verify
+      - run: python -m build
       - run: cd web && npm ci && npm test -- --run && npm run build

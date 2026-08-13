@@ -8,6 +8,22 @@ Code-Agent 是一个面向本地代码仓库的通用编码助手，也是 AI4SE
 
 > 当前处于规格设计完成、实现尚未开始的阶段。本文中的安装命令和交互界面是首版目标，不代表目前已经可以运行。完整设计见 [SPEC.md](SPEC.md)。
 
+## Task 23 使用示例
+
+安装当前项目后，可以使用统一的 Provider 与任务生命周期命令：
+
+```powershell
+code-agent status <task-id> --url http://127.0.0.1:8000 --json
+code-agent approve <approval-id> --url http://127.0.0.1:8000 --scope once --json
+code-agent reject <approval-id> --url http://127.0.0.1:8000 --json
+code-agent resume <task-id> --url http://127.0.0.1:8000 --json
+code-agent web --host 127.0.0.1 --port 8000
+```
+
+默认测试只使用离线 Mock Provider，不读取真实凭据，也不访问外网。真实 Provider 只接受配置文件中的非敏感 URL/模型和系统 keyring 中的凭据；客户端不会提交端点、模型或密钥。
+
+四类规格演示位于 `demos/task23_feature.py`、`task23_bugfix.py`、`task23_tests.py` 与 `task23_refactor.py`，均输出安全的结构化 JSON。
+
 ## 项目定位
 
 Code-Agent 不是只处理示例 Bug 的修复工具，而是面向小到中等规模开发任务的完整编码助手。首版计划支持：
