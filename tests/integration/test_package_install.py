@@ -12,6 +12,7 @@ from re import findall
 
 import httpx
 import pytest
+import yaml
 
 from scripts.prepare_web_package import WebPackagePreparationError, prepare_web_package
 
@@ -137,6 +138,36 @@ def static_asset_path(index_html: str) -> str:
     return assets[0]
 
 
+def make_recipe(makefile: str, target: str) -> str:
+    target_marker = f"{target}:"
+    lines = makefile.splitlines()
+    start = lines.index(target_marker) + 1
+    recipe: list[str] = []
+    for line in lines[start:]:
+        if line.startswith("\t"):
+            recipe.append(line.removeprefix("\t"))
+        elif line:
+            break
+    return "\n".join(recipe)
+
+
+def command_sequence(commands: list[str]) -> list[str]:
+    return [
+        "npm ci",
+        "npm test -- --run",
+        "npm run build",
+        "python scripts/prepare_web_package.py",
+        "python -m build",
+        "python -m pytest tests/integration/test_package_install.py -q",
+    ]
+
+
+def assert_command_sequence(commands: list[str]) -> None:
+    joined = "\n".join(commands)
+    indexes = [joined.index(command) for command in command_sequence(commands)]
+    assert indexes == sorted(indexes)
+
+
 def test_prepare_web_package_rejects_missing_frontend_dist(tmp_path: Path) -> None:
     (tmp_path / "src" / "code_agent").mkdir(parents=True)
 
@@ -161,22 +192,25 @@ def test_prepare_web_package_copies_frontend_dist(tmp_path: Path) -> None:
 
 def test_ci_and_makefile_run_web_build_before_python_package() -> None:
     makefile = REPO_ROOT.joinpath("Makefile").read_text(encoding="utf-8")
-    github = REPO_ROOT.joinpath(".github", "workflows", "ci.yml").read_text(encoding="utf-8")
-    gitlab = REPO_ROOT.joinpath(".gitlab-ci.yml").read_text(encoding="utf-8")
+    github = yaml.safe_load(
+        REPO_ROOT.joinpath(".github", "workflows", "ci.yml").read_text(encoding="utf-8")
+    )
+    gitlab = yaml.safe_load(REPO_ROOT.joinpath(".gitlab-ci.yml").read_text(encoding="utf-8"))
 
-    assert "package:" in makefile
-    assert "prepare_web_package.py" in makefile
-    for workflow in (makefile, github, gitlab):
-        assert workflow.index("npm test -- --run") < workflow.index("npm run build")
-        assert workflow.index("npm run build") < workflow.index("prepare_web_package.py")
-        assert workflow.index("prepare_web_package.py") < workflow.index("python -m build")
+    assert_command_sequence([make_recipe(makefile, "package")])
 
-    assert "image: python:3.12-bookworm" in gitlab
-    assert "https://deb.nodesource.com/setup_22.x" in gitlab
-    assert "apt-get install -y nodejs make" in gitlab
-    assert "needs:" in gitlab
-    assert "artifacts: true" in gitlab
-    assert "web/dist/" in gitlab
+    github_steps = github["jobs"]["test"]["steps"]
+    github_commands = [step["run"] for step in github_steps if "run" in step]
+    assert_command_sequence(github_commands)
+
+    web_build = gitlab["web-build"]
+    package = gitlab["package"]
+    assert package["needs"] == [{"job": "web-build", "artifacts": True}]
+    assert web_build["artifacts"]["paths"] == ["web/dist/"]
+    assert package["image"] == "python:3.12-bookworm"
+    assert "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -" in package["before_script"]
+    assert "apt-get install -y nodejs make" in package["before_script"]
+    assert_command_sequence(web_build["script"] + package["script"])
 
 
 def test_built_wheel_installs_with_web_assets_in_clean_venv(
