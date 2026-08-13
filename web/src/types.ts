@@ -26,6 +26,9 @@ export interface TaskDetail {
   mode: PermissionMode;
   provider: string;
   pending_approvals: Approval[];
+  recovery_required?: boolean;
+  recovery_reason?: string | null;
+  resumable?: boolean;
   report?: string;
   changed_files?: string[];
   verification?: unknown[];
