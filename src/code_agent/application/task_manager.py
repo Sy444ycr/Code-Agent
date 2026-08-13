@@ -54,30 +54,12 @@ class TaskManager:
         return running
 
     def recover(self, task_id: str, provider: LLMProvider) -> Task:
-        task = self.store.get_task(task_id)
-        recovery = self.store.get_recovery(task_id)
-        loop_spec = self.store.get_spec(task_id)
-        if (
-            task is None
-            or recovery is None
-            or not recovery.required
-            or loop_spec is None
-        ):
-            raise ValueError("not restart-recoverable")
-        if task.status != TaskStatus.NEEDS_REVIEW:
-            raise ValueError("not awaiting recovery")
         with self._lock:
-            if task.id in self._runtimes:
-                raise ValueError(f"task {task.id} is already running")
-            running = task.model_copy(
-                update={"status": TaskStatus.RUNNING, "goal": loop_spec.goal}
-            )
-            self.store.update_task(running)
-            self.store.save_recovery(task_id, recovery.model_copy(update={"required": False}))
-            self.store.append_event(
+            if task_id in self._runtimes:
+                raise ValueError(f"task {task_id} is already running")
+            running, loop_spec = self.store.claim_recovery(
                 task_id,
-                "recovery_started",
-                {"reason": "用户确认从头重新执行"},
+                "用户确认从头重新执行",
             )
             self._start_runtime(running, loop_spec, provider)
         return running

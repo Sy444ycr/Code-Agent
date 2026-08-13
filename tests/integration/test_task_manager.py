@@ -1,4 +1,5 @@
 import time
+from threading import Barrier, Event, Lock, Thread
 
 import pytest
 
@@ -250,3 +251,72 @@ def test_deciding_orphaned_approval_conflicts_without_creating_runtime(tmp_path)
     assert task.id not in manager._runtimes
     assert store.get_approval(approval.id).status == "pending"
     manager.shutdown()
+
+
+def test_concurrent_recover_claims_task_only_once_across_connections(tmp_path) -> None:
+    class SlowSpecStore(SQLiteStore):
+        def __init__(self, path) -> None:
+            super().__init__(path)
+
+        def get_spec(self, task_id: str) -> LoopSpec | None:
+            time.sleep(0.05)
+            return super().get_spec(task_id)
+
+    class BlockingProvider:
+        def __init__(self, release: Event) -> None:
+            self._release = release
+            self._lock = Lock()
+            self.calls = 0
+
+        def decide(self, context: str) -> AgentDecision:
+            del context
+            with self._lock:
+                self.calls += 1
+            self._release.wait(timeout=2)
+            return AgentDecision(action="complete", completion_message="done")
+
+    path = tmp_path / "state.db"
+    seed = SQLiteStore(path)
+    task = seed.create_task(
+        Task(workspace=str(tmp_path), goal="recover", status=TaskStatus.NEEDS_REVIEW),
+        LoopSpec(goal="recover"),
+    )
+    seed.save_recovery(task.id, TaskRecovery(required=True, reason="服务重启后需人工复核"))
+
+    start = Barrier(2)
+    manager_a = TaskManager(SlowSpecStore(path))
+    manager_b = TaskManager(SlowSpecStore(path))
+    release = Event()
+    provider = BlockingProvider(release)
+    outcomes: list[object] = []
+
+    def recover(manager: TaskManager) -> None:
+        try:
+            start.wait(timeout=2)
+            outcomes.append(manager.recover(task.id, provider))
+        except Exception as exc:  # pragma: no cover - assertions inspect concrete values
+            outcomes.append(exc)
+
+    thread_a = Thread(target=recover, args=(manager_a,))
+    thread_b = Thread(target=recover, args=(manager_b,))
+    thread_a.start()
+    thread_b.start()
+    thread_a.join()
+    thread_b.join()
+
+    release.set()
+    wait_until(lambda: provider.calls == 1)
+    wait_until(lambda: seed.get_task(task.id).status == TaskStatus.SUCCEEDED)
+
+    successes = [outcome for outcome in outcomes if isinstance(outcome, Task)]
+    failures = [outcome for outcome in outcomes if isinstance(outcome, Exception)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], ValueError)
+    assert str(failures[0]) in {"not awaiting recovery", "not restart-recoverable"}
+    assert provider.calls == 1
+    assert [event.type for event in seed.events_after(task.id, 0)].count("recovery_started") == 1
+    assert [event.type for event in seed.events_after(task.id, 0)].count("task_completed") == 1
+
+    manager_a.shutdown()
+    manager_b.shutdown()

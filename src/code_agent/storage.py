@@ -168,6 +168,37 @@ class SQLiteStore:
             self.connection.commit()
         return event
 
+    def claim_recovery(self, task_id: str, reason: str) -> tuple[Task, LoopSpec]:
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                task = self.get_task(task_id)
+                recovery = self.get_recovery(task_id)
+                loop_spec = self.get_spec(task_id)
+                if (
+                    task is None
+                    or recovery is None
+                    or not recovery.required
+                    or loop_spec is None
+                ):
+                    raise ValueError("not restart-recoverable")
+                if task.status != TaskStatus.NEEDS_REVIEW:
+                    raise ValueError("not awaiting recovery")
+                running = task.model_copy(
+                    update={"status": TaskStatus.RUNNING, "goal": loop_spec.goal}
+                )
+                self._write_task(running)
+                self._write_recovery(
+                    task_id,
+                    recovery.model_copy(update={"required": False}),
+                )
+                self._append_event(task_id, "recovery_started", {"reason": reason})
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+        return running, loop_spec
+
     def isolate_interrupted_tasks(self) -> list[Task]:
         with self._lock:
             self.connection.execute("BEGIN IMMEDIATE")
