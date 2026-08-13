@@ -3,6 +3,7 @@ from __future__ import annotations
 import socket
 import subprocess
 import sys
+import tarfile
 import time
 import zipfile
 from os import environ
@@ -72,18 +73,20 @@ def run_code_agent(
     )
 
 
-def build_project_wheel(repo_root: Path, wheel_output: Path) -> Path:
+def build_project_artifacts(repo_root: Path, artifact_output: Path) -> tuple[Path, Path]:
     frontend = repo_root / "web"
     install = run(npm_executable(), "ci", cwd=frontend)
     assert install.returncode == 0, install.stderr
     build = run(npm_executable(), "run", "build", cwd=frontend)
     assert build.returncode == 0, build.stderr
     prepare_web_package(repo_root)
-    result = run(sys.executable, "-m", "build", "--wheel", "--outdir", str(wheel_output))
+    result = run(sys.executable, "-m", "build", "--outdir", str(artifact_output))
     assert result.returncode == 0, result.stderr
-    wheels = list(wheel_output.glob("code_agent-*.whl"))
+    wheels = list(artifact_output.glob("code_agent-*.whl"))
     assert len(wheels) == 1, "wheel build did not create exactly one wheel"
-    return wheels[0]
+    sdists = list(artifact_output.glob("code_agent-*.tar.gz"))
+    assert len(sdists) == 1, "sdist build did not create exactly one source archive"
+    return wheels[0], sdists[0]
 
 
 def create_venv(path: Path) -> Path:
@@ -192,6 +195,39 @@ def test_prepare_web_package_copies_frontend_dist(tmp_path: Path) -> None:
     assert (target / "assets" / "app.js").read_text(encoding="utf-8") == "console.log('WebUI')"
 
 
+def test_prepare_web_package_rejects_missing_referenced_asset(tmp_path: Path) -> None:
+    source = tmp_path / "web" / "dist"
+    source.mkdir(parents=True)
+    (source / "index.html").write_text(
+        '<script src="/assets/missing.js"></script>', encoding="utf-8"
+    )
+    (tmp_path / "src" / "code_agent").mkdir(parents=True)
+
+    with pytest.raises(WebPackagePreparationError, match="WebUI 构建产物缺失"):
+        prepare_web_package(tmp_path)
+
+
+def test_prepare_web_package_script_stages_assets(tmp_path: Path) -> None:
+    script = tmp_path / "scripts" / "prepare_web_package.py"
+    script.parent.mkdir()
+    script.write_text(
+        REPO_ROOT.joinpath("scripts", "prepare_web_package.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    source = tmp_path / "web" / "dist" / "assets"
+    source.mkdir(parents=True)
+    (source.parent / "index.html").write_text(
+        '<script src="/assets/app.js"></script>', encoding="utf-8"
+    )
+    (source / "app.js").write_text("console.log('WebUI')", encoding="utf-8")
+    (tmp_path / "src" / "code_agent").mkdir(parents=True)
+
+    result = run(sys.executable, str(script), cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "src" / "code_agent" / "web_dist" / "assets" / "app.js").is_file()
+
+
 def test_ci_and_makefile_run_web_build_before_python_package() -> None:
     makefile = REPO_ROOT.joinpath("Makefile").read_text(encoding="utf-8")
     github = yaml.safe_load(
@@ -228,9 +264,14 @@ def test_ci_and_makefile_run_web_build_before_python_package() -> None:
 def test_built_wheel_installs_with_web_assets_in_clean_venv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    wheel = build_project_wheel(REPO_ROOT, tmp_path / "wheel-output")
+    wheel, sdist = build_project_artifacts(REPO_ROOT, tmp_path / "package-output")
+    with tarfile.open(sdist) as archive:
+        archive_names = archive.getnames()
+    assert any(name.endswith("src/code_agent/cli.py") for name in archive_names)
+    assert any(name.endswith("src/code_agent/web_dist/index.html") for name in archive_names)
     with zipfile.ZipFile(wheel) as archive:
         assert "code_agent/web_dist/index.html" in archive.namelist()
+        assert "code_agent/cli.py" in archive.namelist()
 
     venv_python = create_venv(tmp_path / "venv")
     install_wheel(venv_python, wheel)
