@@ -20,7 +20,10 @@ REQUEST_TIMEOUT_SECONDS = 10
 
 
 def run(
-    executable: Path | str, *arguments: str, cwd: Path = REPO_ROOT, env: dict[str, str] | None = None
+    executable: Path | str,
+    *arguments: str,
+    cwd: Path = REPO_ROOT,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(executable), *arguments],
@@ -178,7 +181,8 @@ def test_built_wheel_installs_with_web_assets_in_clean_venv(
     assert assets_check.returncode == 0
     assert assets_check.stdout == "Web assets available\n"
     assert run_code_agent(venv_python, "--help", cwd=tmp_path, env=environment).returncode == 0
-    assert run_code_agent(venv_python, "web", "--help", cwd=tmp_path, env=environment).returncode == 0
+    web_help = run_code_agent(venv_python, "web", "--help", cwd=tmp_path, env=environment)
+    assert web_help.returncode == 0
 
     port = available_port()
     process = subprocess.Popen(
