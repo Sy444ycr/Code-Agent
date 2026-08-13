@@ -13,6 +13,7 @@ from code_agent.application.providers import ProviderFactoryError, build_provide
 from code_agent.application.task_manager import TaskManager
 from code_agent.core.models import LoopSpec, Task, TaskStatus
 from code_agent.storage import SQLiteStore
+from code_agent.web_assets import mount_web_assets
 
 
 def create_app(
@@ -159,6 +160,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"approval": approval.model_dump(mode="json")}
 
+    mount_web_assets(app)
     return app
 
 

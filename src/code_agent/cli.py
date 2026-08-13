@@ -186,6 +186,16 @@ def attach(url: str) -> None:
     typer.echo(url)
 
 
+@app.command()
+def web(
+    host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port")] = 8000,
+) -> None:
+    import uvicorn
+
+    uvicorn.run("code_agent.api.app:create_app", host=host, port=port)
+
+
 def _print_api_result(payload: dict[str, object], json_output: bool) -> None:
     if json_output:
         typer.echo(jsonlib.dumps(payload, ensure_ascii=False))
