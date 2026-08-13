@@ -8,10 +8,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from code_agent.api.schemas import ApprovalDecisionRequest, TaskCreate
+from code_agent.api.schemas import ApprovalDecisionRequest, TaskCreate, TaskDetailResponse
 from code_agent.application.providers import ProviderFactoryError, build_provider
 from code_agent.application.task_manager import TaskManager
-from code_agent.core.models import LoopSpec, Task, TaskStatus
+from code_agent.core.models import AgentDecision, LoopSpec, Task, TaskRecovery, TaskStatus
 from code_agent.storage import SQLiteStore
 from code_agent.web_assets import mount_web_assets
 
@@ -51,6 +51,21 @@ def create_app(
         )
         spec = LoopSpec(goal=request.goal, acceptance_checks=request.acceptance_checks)
         running = app.state.manager.submit(task, spec, provider)
+        app.state.store.save_recovery(
+            running.id,
+            TaskRecovery(
+                mock_decisions=request.mock_decisions if request.provider == "mock" else None
+            ),
+        )
+        if request.provider == "mock":
+            app.state.store.save_checkpoint(
+                running.id,
+                {
+                    "mock_decisions": [
+                        decision.model_dump(mode="json") for decision in request.mock_decisions
+                    ]
+                },
+            )
         return _task_response(running, [])
 
     @app.get("/api/tasks/{task_id}")
@@ -60,9 +75,20 @@ def create_app(
             raise HTTPException(status_code=404, detail="task not found")
         spec = app.state.store.get_spec(task_id)
         approvals = app.state.store.list_pending_approvals(task_id)
-        response = _task_response(task, approvals)
-        response["loop_spec"] = spec.model_dump(mode="json") if spec else None
-        return response
+        recovery_required, recovery_reason, resumable = _recovery_summary(task, app.state.store)
+        return TaskDetailResponse(
+            id=task.id,
+            status=task.status.value,
+            workspace=task.workspace,
+            goal=task.goal,
+            mode=task.mode.value,
+            provider=task.provider,
+            pending_approvals=approvals,
+            recovery_required=recovery_required,
+            recovery_reason=recovery_reason,
+            resumable=resumable,
+            loop_spec=spec,
+        ).model_dump(mode="json")
 
     @app.get("/api/tasks/{task_id}/report")
     def get_report(task_id: str) -> dict[str, object]:
@@ -105,8 +131,26 @@ def create_app(
 
     @app.post("/api/tasks/{task_id}/resume")
     def resume_task(task_id: str) -> dict[str, object]:
+        task = _require_task(task_id, app.state.store)
+        recovery = app.state.store.get_recovery(task_id)
+        if task.status != TaskStatus.NEEDS_REVIEW:
+            raise HTTPException(status_code=409, detail="not awaiting recovery")
+        if recovery is None or not recovery.required:
+            raise HTTPException(status_code=409, detail="not restart-recoverable")
+        workspace = Path(task.workspace).resolve()
+        if not workspace.is_dir():
+            raise HTTPException(status_code=409, detail="workspace does not exist")
+        mock_decisions = _recovery_mock_decisions(task_id, recovery, app.state.store)
         try:
-            task = app.state.manager.resume(task_id)
+            provider, _provider_name = build_provider(
+                task.provider,
+                workspace,
+                mock_decisions=mock_decisions if task.provider == "mock" else None,
+            )
+        except ProviderFactoryError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        try:
+            task = app.state.manager.recover(task_id, provider)
         except KeyError:
             raise HTTPException(status_code=404, detail="task not found") from None
         except ValueError as exc:
@@ -189,6 +233,30 @@ def _task_response(task: Task, approvals: list[Any]) -> dict[str, object]:
         "provider": task.provider,
         "pending_approvals": [approval.model_dump(mode="json") for approval in approvals],
     }
+
+
+def _recovery_summary(task: Task, store: SQLiteStore) -> tuple[bool, str | None, bool]:
+    recovery = store.get_recovery(task.id)
+    recovery_required = recovery is not None and recovery.required
+    recovery_reason = recovery.reason if recovery is not None and recovery.required else None
+    resumable = task.status == TaskStatus.NEEDS_REVIEW and recovery_required
+    return recovery_required, recovery_reason, resumable
+
+
+def _recovery_mock_decisions(
+    task_id: str,
+    recovery: TaskRecovery,
+    store: SQLiteStore,
+) -> list[AgentDecision] | None:
+    if recovery.mock_decisions is not None:
+        return recovery.mock_decisions
+    checkpoint = store.load_checkpoint(task_id)
+    if not checkpoint:
+        return None
+    raw_decisions = checkpoint.get("mock_decisions")
+    if not isinstance(raw_decisions, list):
+        return None
+    return [AgentDecision.model_validate(decision) for decision in raw_decisions]
 
 
 def _format_sse(event: Any) -> str:

@@ -3,6 +3,9 @@ import time
 from fastapi.testclient import TestClient
 
 from code_agent.api.app import create_app
+from code_agent.core.models import AgentDecision
+from code_agent.core.models import LoopSpec, Task, TaskRecovery, TaskStatus
+from code_agent.storage import SQLiteStore
 
 
 def wait_for_status(client: TestClient, task_id: str, status: str) -> None:
@@ -173,3 +176,129 @@ def test_terminal_task_cannot_be_cancelled_twice(tmp_path) -> None:
         response = client.post(f"/api/tasks/{task_id}/cancel")
 
         assert response.status_code == 409
+
+
+def test_get_task_reports_recovery_summary_and_resumable_only_for_restart_recovery(
+    tmp_path,
+) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    resumable_task = store.create_task(
+        Task(workspace=str(tmp_path), goal="recover", status=TaskStatus.NEEDS_REVIEW),
+        LoopSpec(goal="recover"),
+    )
+    store.save_recovery(
+        resumable_task.id,
+        TaskRecovery(required=True, reason="服务重启后需人工复核"),
+    )
+    manual_review_task = store.create_task(
+        Task(workspace=str(tmp_path), goal="manual", status=TaskStatus.NEEDS_REVIEW),
+        LoopSpec(goal="manual"),
+    )
+
+    with TestClient(create_app(store=store)) as client:
+        resumable_response = client.get(f"/api/tasks/{resumable_task.id}")
+        manual_response = client.get(f"/api/tasks/{manual_review_task.id}")
+
+    assert resumable_response.status_code == 200
+    assert resumable_response.json()["recovery_required"] is True
+    assert resumable_response.json()["recovery_reason"] == "服务重启后需人工复核"
+    assert resumable_response.json()["resumable"] is True
+
+    assert manual_response.status_code == 200
+    assert manual_response.json()["recovery_required"] is False
+    assert manual_response.json()["recovery_reason"] is None
+    assert manual_response.json()["resumable"] is False
+
+
+def test_create_task_persists_mock_decisions_for_recovery(tmp_path) -> None:
+    app = create_app(state_path=tmp_path / "state.db")
+    decisions = [{"action": "complete", "completion_message": "done"}]
+
+    with TestClient(app) as client:
+        task_id = client.post(
+            "/api/tasks",
+            json={
+                "workspace": str(tmp_path),
+                "goal": "complete",
+                "provider": "mock",
+                "mock_decisions": decisions,
+            },
+        ).json()["id"]
+
+    recovery = app.state.store.get_recovery(task_id)
+
+    assert recovery is not None
+    assert recovery.required is False
+    assert recovery.reason is None
+    assert recovery.mock_decisions == [AgentDecision.model_validate(decision) for decision in decisions]
+
+
+def test_resume_rebuilds_mock_provider_for_restart_recovery(tmp_path) -> None:
+    state_path = tmp_path / "state.db"
+    initial_app = create_app(state_path=state_path)
+    decisions = [{"action": "complete", "completion_message": "done again"}]
+
+    with TestClient(initial_app) as client:
+        task_id = client.post(
+            "/api/tasks",
+            json={
+                "workspace": str(tmp_path),
+                "goal": "complete",
+                "provider": "mock",
+                "mock_decisions": decisions,
+            },
+        ).json()["id"]
+        wait_for_status(client, task_id, "succeeded")
+
+        task = initial_app.state.store.get_task(task_id)
+        assert task is not None
+        initial_app.state.store.update_task(
+            task.model_copy(update={"status": TaskStatus.NEEDS_REVIEW})
+        )
+        recovery = initial_app.state.store.get_recovery(task_id)
+        assert recovery is not None
+        initial_app.state.store.save_recovery(
+            task_id,
+            recovery.model_copy(update={"required": True, "reason": "服务重启后需人工复核"}),
+        )
+
+    restarted_app = create_app(state_path=state_path)
+    with TestClient(restarted_app) as client:
+        detail = client.get(f"/api/tasks/{task_id}")
+        response = client.post(f"/api/tasks/{task_id}/resume")
+
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "needs_review"
+        assert detail.json()["recovery_required"] is True
+        assert detail.json()["resumable"] is True
+
+        assert response.status_code == 200
+        wait_for_status(client, task_id, "succeeded")
+        assert any(
+            event["type"] == "recovery_started"
+            for event in client.get(f"/api/tasks/{task_id}/events?after=0").json()["events"]
+        )
+
+
+def test_resume_rejects_missing_workspace_without_starting_recovery(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    missing_workspace = tmp_path / "missing-workspace"
+    task = store.create_task(
+        Task(
+            workspace=str(missing_workspace),
+            goal="recover",
+            status=TaskStatus.NEEDS_REVIEW,
+        ),
+        LoopSpec(goal="recover"),
+    )
+    store.save_recovery(task.id, TaskRecovery(required=True, reason="服务重启后需人工复核"))
+
+    with TestClient(create_app(store=store)) as client:
+        response = client.post(f"/api/tasks/{task.id}/resume")
+        detail = client.get(f"/api/tasks/{task.id}")
+        events = client.get(f"/api/tasks/{task.id}/events?after=0")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "workspace does not exist"
+    assert detail.json()["status"] == "needs_review"
+    assert all(event["type"] != "recovery_started" for event in events.json()["events"])
