@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from code_agent import auth
-from code_agent.config import resolve_provider_profile
+from code_agent.config import ProviderConfigurationError, resolve_provider_profile
 from code_agent.core.llm import LLMProvider, MockLLMProvider, OpenAICompatibleProvider
 from code_agent.core.models import AgentDecision
 
@@ -28,13 +28,18 @@ def build_provider(
             raise ProviderFactoryError("Mock Provider 必须显式提供决策。")
         return MockLLMProvider(mock_decisions), provider_name
     try:
-        profile = resolve_provider_profile(provider_name, workspace)
+        try:
+            profile = resolve_provider_profile(provider_name, workspace)
+        except ProviderConfigurationError as exc:
+            if not (workspace / ".code-agent" / "config.toml").is_file():
+                raise ProviderFactoryError("Provider 档案不存在。") from exc
+            raise ProviderFactoryError("Provider 配置不可用。") from exc
         api_key = auth.get_provider_secret(
             provider_name,
             allow_development_fallback=allow_development_fallback,
         )
         if api_key is None:
-            raise ProviderFactoryError("Provider 凭据不可用。")
+            raise ProviderFactoryError("Provider 密钥未配置。")
         return OpenAICompatibleProvider(
             base_url=profile.base_url,
             model=profile.model,

@@ -11,6 +11,7 @@ from code_agent import __version__, auth
 from code_agent.application.providers import ProviderFactoryError, build_provider
 from code_agent.application.scenarios import MockScenarioError, load_mock_decisions
 from code_agent.application.task_service import TaskService
+from code_agent.cli_api import TaskApiClient
 from code_agent.config import ProviderConfigurationError, resolve_provider_profile
 from code_agent.core.llm import (
     LLMProvider,
@@ -133,6 +134,63 @@ def run(
         typer.echo(f"changed files: {', '.join(result.changed_files) or 'none'}")
     if result.status.value != "succeeded":
         raise typer.Exit(code=1)
+
+
+@app.command()
+def status(
+    task_id: str,
+    url: Annotated[str, typer.Option("--url")] = "http://127.0.0.1:8000",
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    _print_api_result(TaskApiClient(url).get_status(task_id), json_output)
+
+
+@app.command()
+def approve(
+    approval_id: str,
+    url: Annotated[str, typer.Option("--url")] = "http://127.0.0.1:8000",
+    scope: Annotated[str, typer.Option("--scope")] = "once",
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    _print_api_result(
+        TaskApiClient(url).decide_approval(approval_id, True, scope), json_output
+    )
+
+
+@app.command()
+def reject(
+    approval_id: str,
+    url: Annotated[str, typer.Option("--url")] = "http://127.0.0.1:8000",
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    _print_api_result(
+        TaskApiClient(url).decide_approval(approval_id, False), json_output
+    )
+
+
+@app.command()
+def resume(
+    task_id: str,
+    url: Annotated[str, typer.Option("--url")] = "http://127.0.0.1:8000",
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    _print_api_result(TaskApiClient(url).resume_task(task_id), json_output)
+
+
+@app.command()
+def attach(url: str) -> None:
+    """验证并显示用户提供的本地服务地址。"""
+    if not url.startswith(("http://", "https://")):
+        typer.echo("服务地址无效。", err=True)
+        raise typer.Exit(code=2)
+    typer.echo(url)
+
+
+def _print_api_result(payload: dict[str, object], json_output: bool) -> None:
+    if json_output:
+        typer.echo(jsonlib.dumps(payload, ensure_ascii=False))
+    else:
+        typer.echo(jsonlib.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def _prompt_approval(
