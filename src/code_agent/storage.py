@@ -70,10 +70,17 @@ class SQLiteStore:
         )
         return event
 
-    def create_task(self, task: Task, loop_spec: LoopSpec) -> Task:
+    def create_task(
+        self,
+        task: Task,
+        loop_spec: LoopSpec,
+        recovery: TaskRecovery | None = None,
+    ) -> Task:
         with self._lock:
             self._write_task(task)
             self._write_spec(task.id, loop_spec)
+            if recovery is not None:
+                self._write_recovery(task.id, recovery)
             self.connection.commit()
         return task
 
@@ -204,6 +211,7 @@ class SQLiteStore:
             self.connection.execute("BEGIN IMMEDIATE")
             rows = self.connection.execute("SELECT data FROM tasks ORDER BY rowid").fetchall()
             isolated: list[Task] = []
+            recovery_reason = "服务重启后需人工复核"
             for (data,) in rows:
                 task = Task.model_validate_json(data)
                 if task.status not in {
@@ -213,7 +221,14 @@ class SQLiteStore:
                 }:
                     continue
                 updated = task.model_copy(update={"status": TaskStatus.NEEDS_REVIEW})
-                recovery = TaskRecovery(required=True, reason="服务重启后需人工复核")
+                existing_recovery = self.get_recovery(task.id)
+                recovery = (
+                    existing_recovery.model_copy(
+                        update={"required": True, "reason": recovery_reason}
+                    )
+                    if existing_recovery is not None
+                    else TaskRecovery(required=True, reason=recovery_reason)
+                )
                 self._write_task(updated)
                 self._write_recovery(task.id, recovery)
                 self._append_event(task.id, "recovery_required", {"reason": recovery.reason})

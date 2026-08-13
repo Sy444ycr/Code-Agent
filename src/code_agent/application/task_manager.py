@@ -15,6 +15,7 @@ from code_agent.core.models import (
     ApprovalResolution,
     LoopSpec,
     Task,
+    TaskRecovery,
     TaskStatus,
     ToolAction,
 )
@@ -43,11 +44,17 @@ class TaskManager:
         self._lock = RLock()
         self.store.isolate_interrupted_tasks()
 
-    def submit(self, task: Task, loop_spec: LoopSpec, provider: LLMProvider) -> Task:
+    def submit(
+        self,
+        task: Task,
+        loop_spec: LoopSpec,
+        provider: LLMProvider,
+        recovery: TaskRecovery | None = None,
+    ) -> Task:
         with self._lock:
             if task.id in self._runtimes:
                 raise ValueError(f"task {task.id} is already running")
-            self.store.create_task(task, loop_spec)
+            self.store.create_task(task, loop_spec, recovery=recovery)
             running = task.model_copy(update={"status": TaskStatus.RUNNING})
             self.store.update_task(running)
             self._start_runtime(running, loop_spec, provider)

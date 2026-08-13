@@ -57,6 +57,36 @@ def test_submit_runs_in_background_and_persists_terminal_status(tmp_path) -> Non
     manager.shutdown()
 
 
+def test_submit_persists_recovery_before_starting_runtime(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    decisions = [AgentDecision(action="complete", completion_message="done")]
+    recovery = TaskRecovery(mock_decisions=decisions)
+
+    class InspectingManager(TaskManager):
+        def __init__(self, store: SQLiteStore) -> None:
+            super().__init__(store)
+            self.recovery_seen: TaskRecovery | None = None
+
+        def _start_runtime(self, task: Task, loop_spec: LoopSpec, provider) -> None:
+            del loop_spec, provider
+            self.recovery_seen = self.store.get_recovery(task.id)
+
+    manager = InspectingManager(store)
+    task = Task(workspace=str(tmp_path), goal="complete", mode=PermissionMode.PLAN)
+
+    running = manager.submit(
+        task,
+        LoopSpec(goal="complete"),
+        MockLLMProvider(decisions),
+        recovery=recovery,
+    )
+
+    assert running.status == TaskStatus.RUNNING
+    assert manager.recovery_seen == recovery
+    assert store.get_recovery(task.id) == recovery
+    manager.shutdown()
+
+
 def test_api_approval_wakes_waiting_worker(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "state.db")
     manager = TaskManager(store)

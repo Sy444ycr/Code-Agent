@@ -1,10 +1,11 @@
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
+import code_agent.api.app as api_app
 from code_agent.api.app import create_app
-from code_agent.core.models import AgentDecision
-from code_agent.core.models import LoopSpec, Task, TaskRecovery, TaskStatus
+from code_agent.core.models import AgentDecision, LoopSpec, Task, TaskRecovery, TaskStatus
 from code_agent.storage import SQLiteStore
 
 
@@ -230,54 +231,47 @@ def test_create_task_persists_mock_decisions_for_recovery(tmp_path) -> None:
     assert recovery is not None
     assert recovery.required is False
     assert recovery.reason is None
-    assert recovery.mock_decisions == [AgentDecision.model_validate(decision) for decision in decisions]
+    assert recovery.mock_decisions == [
+        AgentDecision.model_validate(decision) for decision in decisions
+    ]
 
 
-def test_resume_rebuilds_mock_provider_for_restart_recovery(tmp_path) -> None:
-    state_path = tmp_path / "state.db"
-    initial_app = create_app(state_path=state_path)
-    decisions = [{"action": "complete", "completion_message": "done again"}]
+def test_resume_rebuilds_mock_provider_after_startup_isolation(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    task = store.create_task(
+        Task(
+            workspace=str(tmp_path),
+            goal="stale-goal",
+            provider="mock",
+            status=TaskStatus.RUNNING,
+        ),
+        LoopSpec(goal="persisted-goal"),
+    )
+    store.save_recovery(
+        task.id,
+        TaskRecovery(
+            mock_decisions=[AgentDecision(action="complete", completion_message="done again")]
+        ),
+    )
 
-    with TestClient(initial_app) as client:
-        task_id = client.post(
-            "/api/tasks",
-            json={
-                "workspace": str(tmp_path),
-                "goal": "complete",
-                "provider": "mock",
-                "mock_decisions": decisions,
-            },
-        ).json()["id"]
-        wait_for_status(client, task_id, "succeeded")
-
-        task = initial_app.state.store.get_task(task_id)
-        assert task is not None
-        initial_app.state.store.update_task(
-            task.model_copy(update={"status": TaskStatus.NEEDS_REVIEW})
-        )
-        recovery = initial_app.state.store.get_recovery(task_id)
-        assert recovery is not None
-        initial_app.state.store.save_recovery(
-            task_id,
-            recovery.model_copy(update={"required": True, "reason": "服务重启后需人工复核"}),
-        )
-
-    restarted_app = create_app(state_path=state_path)
-    with TestClient(restarted_app) as client:
-        detail = client.get(f"/api/tasks/{task_id}")
-        response = client.post(f"/api/tasks/{task_id}/resume")
+    with TestClient(create_app(store=store)) as client:
+        detail = client.get(f"/api/tasks/{task.id}")
+        response = client.post(f"/api/tasks/{task.id}/resume")
 
         assert detail.status_code == 200
         assert detail.json()["status"] == "needs_review"
+        assert detail.json()["goal"] == "stale-goal"
         assert detail.json()["recovery_required"] is True
         assert detail.json()["resumable"] is True
 
         assert response.status_code == 200
-        wait_for_status(client, task_id, "succeeded")
-        assert any(
-            event["type"] == "recovery_started"
-            for event in client.get(f"/api/tasks/{task_id}/events?after=0").json()["events"]
-        )
+        wait_for_status(client, task.id, "succeeded")
+        events = client.get(f"/api/tasks/{task.id}/events?after=0").json()["events"]
+        event_types = [event["type"] for event in events]
+        assert event_types[0] == "recovery_required"
+        assert "recovery_started" in event_types
+        assert event_types[-1] == "task_completed"
+        assert event_types.index("recovery_started") < event_types.index("task_completed")
 
 
 def test_resume_rejects_missing_workspace_without_starting_recovery(tmp_path) -> None:
@@ -300,5 +294,54 @@ def test_resume_rejects_missing_workspace_without_starting_recovery(tmp_path) ->
 
     assert response.status_code == 409
     assert response.json()["detail"] == "workspace does not exist"
+    assert detail.json()["status"] == "needs_review"
+    assert all(event["type"] != "recovery_started" for event in events.json()["events"])
+
+
+def test_resume_rejects_provider_reconstruction_failure_without_starting_recovery(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    task = store.create_task(
+        Task(
+            workspace=str(tmp_path),
+            goal="recover",
+            provider="mock",
+            status=TaskStatus.NEEDS_REVIEW,
+        ),
+        LoopSpec(goal="recover"),
+    )
+    store.save_recovery(
+        task.id,
+        TaskRecovery(
+            required=True,
+            reason="服务重启后需人工复核",
+            mock_decisions=[AgentDecision(action="complete", completion_message="done")],
+        ),
+    )
+
+    def fail_build_provider(
+        name,
+        workspace,
+        *,
+        mock_decisions=None,
+        allow_development_fallback=False,
+    ):
+        del name, workspace, mock_decisions, allow_development_fallback
+        raise api_app.ProviderFactoryError("Provider 配置不可用。")
+
+    monkeypatch.setattr(api_app, "build_provider", fail_build_provider)
+
+    with TestClient(create_app(store=store)) as client:
+        def fail_recover(task_id, provider):
+            raise AssertionError(f"recover should not be called for {task_id} {provider}")
+
+        monkeypatch.setattr(client.app.state.manager, "recover", fail_recover)
+        response = client.post(f"/api/tasks/{task.id}/resume")
+        detail = client.get(f"/api/tasks/{task.id}")
+        events = client.get(f"/api/tasks/{task.id}/events?after=0")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Provider 配置不可用。"
     assert detail.json()["status"] == "needs_review"
     assert all(event["type"] != "recovery_started" for event in events.json()["events"])

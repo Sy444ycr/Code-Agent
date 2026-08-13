@@ -50,13 +50,10 @@ def create_app(
             provider=provider_name,
         )
         spec = LoopSpec(goal=request.goal, acceptance_checks=request.acceptance_checks)
-        running = app.state.manager.submit(task, spec, provider)
-        app.state.store.save_recovery(
-            running.id,
-            TaskRecovery(
-                mock_decisions=request.mock_decisions if request.provider == "mock" else None
-            ),
+        recovery = TaskRecovery(
+            mock_decisions=request.mock_decisions if request.provider == "mock" else None
         )
+        running = app.state.manager.submit(task, spec, provider, recovery=recovery)
         if request.provider == "mock":
             app.state.store.save_checkpoint(
                 running.id,

@@ -74,3 +74,33 @@ Success: no issues found in 33 source files
 
 - 当前验证环境使用的是仓库外临时 Python 3.13 虚拟环境；项目声明 `requires-python >=3.12`，本机未发现 3.12 解释器，但本次测试、ruff、mypy 均已通过
 - 指定 pytest 仍有 27 条现存 warning，主要来自 FastAPI `on_event` 和 Starlette `TestClient` 的弃用提示；本次未在 brief 范围内处理
+## Task 3 fix round 1（2026-08-13）
+
+### 修复目标
+
+- 消除 `POST /api/tasks` 中 `manager.submit(...)` 之后才写入 recovery 的竞态窗口
+- 确保 startup isolation 不覆盖已持久化的 `mock_decisions`
+- 确保 provider 重建失败时 `/api/tasks/{task_id}/resume` 返回 `409`，且不产生 `recovery_started`
+
+### 实现说明
+
+- `TaskManager.submit(...)` 新增可选 `recovery` 参数，并在 `_start_runtime(...)` 前通过 `store.create_task(..., recovery=...)` 一并落库
+- `SQLiteStore.create_task(...)` 新增可选 `recovery` 参数，将 task、spec、recovery 在同一提交流程内写入
+- API 创建任务时直接构造 `TaskRecovery(mock_decisions=...)` 传入 `submit(...)`，不再在 submit 之后补写 recovery
+- `SQLiteStore.isolate_interrupted_tasks()` 改为复用已有 recovery，并只把 `required/reason` 切换为重启恢复态，保留既有 `mock_decisions`
+- 恢复相关测试调整为验证真正的竞态修复语义：`recovery_started` 必须出现在 `task_completed` 之前，但不排斥正常运行期事件
+
+### TDD / 验证
+
+- 红灯 1：`test_submit_persists_recovery_before_starting_runtime` 初始失败，报错为 `TaskManager.submit() got an unexpected keyword argument 'recovery'`
+- 红灯 2：`test_resume_rebuilds_mock_provider_after_startup_isolation` 初始失败，`POST /resume` 返回 `409`
+- 完整验证结果：
+  - `pytest tests/integration/test_api_sse.py tests/integration/test_task_manager.py -q` → `28 passed, 27 warnings`
+  - `ruff check src/code_agent/api src/code_agent/application/task_manager.py src/code_agent/storage.py tests/integration/test_api_sse.py tests/integration/test_task_manager.py` → `All checks passed!`
+  - `mypy src` → `Success: no issues found in 33 source files`
+
+### 结果
+
+- `submit(recovery=...)` 现在会在 runtime 启动前持久化 recovery
+- API 不再通过“submit 后补写 recovery”的方式记录恢复信息
+- startup isolation 后的 mock 任务可以依赖已持久化的 `mock_decisions` 完成 provider 重建与 resume
