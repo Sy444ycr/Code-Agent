@@ -138,7 +138,7 @@ def static_asset_path(index_html: str) -> str:
     return assets[0]
 
 
-def make_recipe(makefile: str, target: str) -> str:
+def make_recipe(makefile: str, target: str) -> list[str]:
     target_marker = f"{target}:"
     lines = makefile.splitlines()
     start = lines.index(target_marker) + 1
@@ -148,24 +148,26 @@ def make_recipe(makefile: str, target: str) -> str:
             recipe.append(line.removeprefix("\t"))
         elif line:
             break
-    return "\n".join(recipe)
+    return recipe
 
 
-def command_sequence(commands: list[str]) -> list[str]:
-    return [
-        "npm ci",
-        "npm test -- --run",
-        "npm run build",
-        "python scripts/prepare_web_package.py",
-        "python -m build",
-        "python -m pytest tests/integration/test_package_install.py -q",
-    ]
+PACKAGE_COMMANDS = [
+    "cd web && npm ci && npm test -- --run && npm run build",
+    "python scripts/prepare_web_package.py",
+    "python -m build",
+    "python -m pytest tests/integration/test_package_install.py -q",
+]
+
+CI_PACKAGE_COMMANDS = [
+    "python scripts/prepare_web_package.py",
+    "make verify",
+    "python -m build",
+    "python -m pytest tests/integration/test_package_install.py -q",
+]
 
 
-def assert_command_sequence(commands: list[str]) -> None:
-    joined = "\n".join(commands)
-    indexes = [joined.index(command) for command in command_sequence(commands)]
-    assert indexes == sorted(indexes)
+def normalized_commands(commands: list[str]) -> list[str]:
+    return [" ".join(command.split()) for command in commands]
 
 
 def test_prepare_web_package_rejects_missing_frontend_dist(tmp_path: Path) -> None:
@@ -197,11 +199,15 @@ def test_ci_and_makefile_run_web_build_before_python_package() -> None:
     )
     gitlab = yaml.safe_load(REPO_ROOT.joinpath(".gitlab-ci.yml").read_text(encoding="utf-8"))
 
-    assert_command_sequence([make_recipe(makefile, "package")])
+    assert normalized_commands(make_recipe(makefile, "package")) == PACKAGE_COMMANDS
 
     github_steps = github["jobs"]["test"]["steps"]
     github_commands = [step["run"] for step in github_steps if "run" in step]
-    assert_command_sequence(github_commands)
+    assert normalized_commands(github_commands) == [
+        'pip install -e ".[dev]"',
+        PACKAGE_COMMANDS[0],
+        *CI_PACKAGE_COMMANDS,
+    ]
 
     web_build = gitlab["web-build"]
     package = gitlab["package"]
@@ -210,7 +216,13 @@ def test_ci_and_makefile_run_web_build_before_python_package() -> None:
     assert package["image"] == "python:3.12-bookworm"
     assert "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -" in package["before_script"]
     assert "apt-get install -y nodejs make" in package["before_script"]
-    assert_command_sequence(web_build["script"] + package["script"])
+    assert normalized_commands(web_build["script"]) == [
+        "cd web && npm ci && npm test -- --run && npm run build"
+    ]
+    assert normalized_commands(package["script"]) == [
+        'pip install -e ".[dev]"',
+        *CI_PACKAGE_COMMANDS,
+    ]
 
 
 def test_built_wheel_installs_with_web_assets_in_clean_venv(
