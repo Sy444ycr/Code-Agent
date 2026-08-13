@@ -206,6 +206,22 @@ async def test_start_screen_creates_mock_task_and_switches_to_run_screen() -> No
 
 
 @pytest.mark.asyncio
+async def test_start_screen_non_mock_provider_omits_mock_decisions() -> None:
+    client = FakeTaskApiClient()
+    app = CodeAgentTui(client=client)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one("#workspace", Input).value = "C:/repo"
+        app.screen.query_one("#goal", Input).value = "Inspect"
+        app.screen.query_one("#provider", Input).value = "openai"
+        await pilot.click("#create-task")
+
+        assert client.payloads[0]["provider"] == "openai"
+        assert "mock_decisions" not in client.payloads[0]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("field", "value"), [("#workspace", ""), ("#goal", "")])
 async def test_start_screen_requires_workspace_and_goal_before_request(
     field: str, value: str

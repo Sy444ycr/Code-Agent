@@ -29,6 +29,12 @@ class TaskApiClient:
     def resume_task(self, task_id: str) -> dict[str, object]:
         return self._request("POST", f"/api/tasks/{task_id}/resume")
 
+    def get_report(self, task_id: str) -> dict[str, object]:
+        return self._request("GET", f"/api/tasks/{task_id}/report")
+
+    def get_diff(self, task_id: str) -> dict[str, object]:
+        return self._request("GET", f"/api/tasks/{task_id}/diff")
+
     def decide_approval(
         self, approval_id: str, *, approved: bool, scope: Literal["once", "task"]
     ) -> dict[str, object]:

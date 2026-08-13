@@ -24,6 +24,8 @@ class StartScreen(Screen[None]):
         yield Input(placeholder="任务目标", id="goal")
         yield Label("Mode")
         yield Input(value="supervised", id="mode")
+        yield Label("Provider")
+        yield Input(value="mock", id="provider")
         yield Label("Mock decisions (JSON)")
         yield Input(value="[]", id="mock-decisions")
         yield Button("创建 Mock 任务", id="create-task", variant="primary")
@@ -51,13 +53,15 @@ class StartScreen(Screen[None]):
         if app.client is None:
             app.notify("任务服务未配置", severity="error")
             return
+        provider = self.query_one("#provider", Input).value.strip().lower() or "mock"
         payload: dict[str, object] = {
             "workspace": workspace,
             "goal": goal,
             "mode": self.query_one("#mode", Input).value.strip() or "supervised",
-            "provider": "mock",
-            "mock_decisions": decisions,
+            "provider": provider,
         }
+        if provider == "mock":
+            payload["mock_decisions"] = decisions
         try:
             task = app.client.create_task(payload)
         except TaskApiError:
@@ -166,6 +170,14 @@ class RunScreen(Screen[None]):
         if status == "waiting_approval" and approval is not None:
             app.push_screen(ApprovalScreen(approval, id="approval"))
         elif isinstance(status, str) and status in app.TERMINAL_STATUSES:
+            get_report = getattr(app.client, "get_report", None)
+            if callable(get_report):
+                try:
+                    report = await asyncio.to_thread(get_report, app.task_id)
+                except TaskApiError:
+                    report = {}
+                if isinstance(report, dict):
+                    app.task_detail = {**detail, **report}
             app.push_screen(ResultScreen(id="result"))
 
     def _append_events(self, response: dict[str, object]) -> None:
@@ -194,6 +206,7 @@ class RunScreen(Screen[None]):
                 ]
             )
         )
+
         self.query_one("#recent-events", Static).update(_event_summary(app.events))
 
     @staticmethod
@@ -283,7 +296,7 @@ class ResultScreen(Screen[None]):
     def compose(self) -> Iterator[Static]:
         app = cast("CodeAgentTui", self.app)
         detail = app.task_detail or {}
-        report = detail.get("result_report")
+        report = detail.get("report") or detail.get("result_report")
         if not isinstance(report, str) or not report.strip():
             report = "服务端未提供结果报告"
         yield Static(
