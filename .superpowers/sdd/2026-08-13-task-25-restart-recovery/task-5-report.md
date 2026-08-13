@@ -135,3 +135,70 @@ web\npm.cmd run build
 
 - 仍保留既有 warnings：FastAPI `on_event`、Starlette TestClient/httpx 弃用提示，以及 Web 侧 Vite `configLoader: 'native'` 迁移预警；它们不影响本次任务结论。
 - 本轮没有扩展到 checkpoint 续跑、真实 Provider E2E 或其他恢复语义，只覆盖 Task 5 所需的真实 SSE 与重跑证明。
+
+## 最终 fix wave 补充
+
+### 新增红灯：终态先落库、完成事件后追加的竞态窗口
+
+在用户指出 `TaskManager` 先更新终态、后追加 `task_completed` 事件后，本轮再按 TDD 新增：
+
+- `test_events_stream_replays_terminal_completion_before_closing`
+
+该测试用受控替身固定真实窗口：
+
+- 任务本身已经是终态 `succeeded`
+- 第一次 `events_after()` 只返回 `feedback`
+- 第二次 `events_after()` 才返回 `task_completed`
+
+红灯命令：
+
+```powershell
+$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests/integration/test_api_sse.py::test_events_stream_replays_terminal_completion_before_closing -q
+```
+
+红灯结果：
+
+- 实际只收到 `['feedback']`
+- 断言期望 `['feedback', 'task_completed']` 失败
+
+这证明旧实现会在看到终态 status 后立即关闭 stream，从而漏掉同一终态中的 `task_completed`。
+
+### 最小修复更新
+
+本轮仍只修改 `src/code_agent/api/app.py`：
+
+- 终态时若当前批次已看到 `task_completed`，则正常关闭
+- 若未看到，则先做一次终态补回看
+- 仅在必要时做一次有限等待后再次检查 `events_after()`
+- 对无活动 runtime 的 `needs_review` 终态任务仍直接关闭
+- 若等待 runtime 时遇到 `KeyError`，安全结束 stream
+
+修复后效果：
+
+- 不再漏掉“status 已终态、但 `task_completed` 稍后才可读”的完成事件
+- 也不会对无 runtime 的恢复前 `needs_review` 任务无限等待
+
+### 关键绿灯证据
+
+新增红灯命令修复后转绿：
+
+- `1 passed, 3 warnings`
+
+原真实恢复 SSE 回归继续通过：
+
+```powershell
+$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests/integration/test_api_sse.py::test_restart_recovery_events_stream_replays_first_step_only_after_resume -q
+```
+
+结果：
+
+- `1 passed, 5 warnings`
+
+这说明：
+
+- 修复补上了终态漏 `task_completed` 的窗口
+- 同时保留了“恢复前只看到 `recovery_required`，人工 `resume` 后才继续”的既有语义
+
+### Concerns 更新
+
+- 旧的“隔离后、恢复前直接拉取无活动 runtime 的 SSE stream 仍可能失败”已不再成立，本次最终 fix wave 已将其修正。

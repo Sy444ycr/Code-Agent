@@ -170,14 +170,31 @@ def create_app(
 
         def generate() -> Iterator[str]:
             cursor = after
+            terminal_recheck_pending = False
             while True:
                 events = app.state.store.events_after(task_id, cursor)
+                saw_task_completed = False
                 for event in events:
                     cursor = event.sequence
+                    if event.type == "task_completed":
+                        saw_task_completed = True
                     yield _format_sse(event)
                 task = app.state.store.get_task(task_id)
                 if task is not None and task.status in _TERMINAL_STATES:
-                    return
+                    if saw_task_completed:
+                        return
+                    if not terminal_recheck_pending:
+                        terminal_recheck_pending = True
+                        continue
+                    if task.status == TaskStatus.NEEDS_REVIEW:
+                        return
+                    try:
+                        app.state.manager.wait_for_event(task_id, cursor, timeout=0.5)
+                    except KeyError:
+                        return
+                    terminal_recheck_pending = False
+                    continue
+                terminal_recheck_pending = False
                 app.state.manager.wait_for_event(task_id, cursor, timeout=0.5)
 
         return StreamingResponse(generate(), media_type="text/event-stream")

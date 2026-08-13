@@ -1,5 +1,14 @@
 # AGENT_LOG
 
+## 2026-08-13 — Task 25 / Task 5 final fix wave
+
+- 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery` 按用户指定的唯一 fix wave 执行最终集中修复；修改范围严格限定为 `src/code_agent/api/app.py`、`tests/integration/test_api_sse.py`、`AGENT_LOG.md`、`SPEC_PROCESS.md`、`.superpowers/sdd/2026-08-13-task-25-restart-recovery/task-5-report.md`。
+- TDD 新红灯：先在 `tests/integration/test_api_sse.py` 新增 `test_events_stream_replays_terminal_completion_before_closing`，通过受控替身让同一终态任务的 `/events/stream` 首轮只能看到 `feedback`、第二轮才返回 `task_completed`，精确复现“任务状态已终态，但 `task_completed` 尚未出现在当前批次 `events_after()` 结果中”的窗口。命令 `$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_events_stream_replays_terminal_completion_before_closing -q` 失败，实际只收到 `['feedback']`，证明当前 SSE 会在终态时过早关闭。
+- 根因证据：`src/code_agent/api/app.py` 的 SSE generator 在每轮回放完成后只要看到任务 `status in _TERMINAL_STATES` 就立即 `return`，没有再次确认本轮之后是否已能读取到 `task_completed`；而 `TaskManager._run()` 中顺序是先 `update_task(final_task)`、后 `append_event("task_completed", ...)`，因此存在短窗口会漏掉最终完成事件。
+- 最小修复：仅调整 `src/code_agent/api/app.py` 的 `/events/stream` generator。终态时若当前批次已看到 `task_completed` 则立即关闭；若未看到，则只做一次终态补回看/有限等待，再次读取 `events_after()`；对 `needs_review` 这类无活动 runtime 的终态任务仍直接关闭，并在等待 runtime 时捕获 `KeyError`，避免无限等待或再次因无 runtime 失败。
+- 绿灯证据：新增红灯命令转为 `1 passed, 3 warnings`；原真实恢复 SSE 回归命令 `$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_restart_recovery_events_stream_replays_first_step_only_after_resume -q` 仍为 `1 passed, 5 warnings`，证明修复既补上终态漏事件窗口，也没有破坏“恢复前只能看到 recovery_required、resume 后才继续”的既有语义。
+- 本轮完成后，旧的“隔离后、恢复前直接拉取无活动 runtime 的 SSE stream 仍可能失败” concern 已不再成立；`SPEC_PROCESS.md` 已改正，`task-5-report.md` 追加了新的红绿证据与最终边界说明。
+
 ## 2026-08-13 — Task 25 / Task 5 fix round 1
 
 - 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery`、分支 `codex/task-25-restart-recovery` 接管 Task 5 修复，先按 TDD 只修改 `tests/integration/test_api_sse.py`，保留原先只覆盖 `/events` JSON 回放的测试并更名为 `events_endpoint`，同时新增真实消费 `/api/tasks/{id}/events/stream` 的重启恢复集成测试。

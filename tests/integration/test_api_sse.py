@@ -161,6 +161,58 @@ def test_events_stream_replays_after_cursor_and_closes_at_terminal(tmp_path) -> 
         assert "event: task_completed" in body
 
 
+def test_events_stream_replays_terminal_completion_before_closing(tmp_path) -> None:
+    app = create_app(state_path=tmp_path / "state.db")
+    with TestClient(app) as client:
+        task = client.app.state.store.create_task(
+            Task(
+                workspace=str(tmp_path),
+                goal="complete",
+                provider="mock",
+                status=TaskStatus.SUCCEEDED,
+            ),
+            LoopSpec(goal="complete"),
+        )
+        feedback_event = client.app.state.store.append_event(
+            task.id, "feedback", {"changed_files": ["marker.txt"]}
+        )
+        completion_event = client.app.state.store.append_event(
+            task.id,
+            "task_completed",
+            {
+                "status": "succeeded",
+                "report": "done",
+                "changed_files": ["marker.txt"],
+                "feedback": [],
+                "verification": [],
+            },
+        )
+
+        events_after_calls = 0
+        original_events_after = client.app.state.store.events_after
+
+        def staged_events_after(task_id: str, after: int):
+            nonlocal events_after_calls
+            events_after_calls += 1
+            if events_after_calls == 1:
+                assert after == 0
+                return [feedback_event]
+            if events_after_calls == 2:
+                assert after == feedback_event.sequence
+                return [completion_event]
+            return original_events_after(task_id, after)
+
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(client.app.state.store, "events_after", staged_events_after)
+        try:
+            events = read_sse_events(client, f"/api/tasks/{task.id}/events/stream?after=0")
+        finally:
+            monkeypatch.undo()
+
+        assert [event["event"] for event in events] == ["feedback", "task_completed"]
+        assert events[-1]["data"]["payload"]["status"] == "succeeded"
+
+
 def test_cancel_waiting_approval_task_returns_cancelled(tmp_path) -> None:
     app = create_app(state_path=tmp_path / "state.db")
     with TestClient(app) as client:
