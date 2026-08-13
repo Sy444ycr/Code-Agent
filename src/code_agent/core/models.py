@@ -91,6 +91,12 @@ class ToolAction(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class TaskRecovery(BaseModel):
+    required: bool = False
+    reason: str | None = None
+    mock_decisions: list[AgentDecision] | None = None
+
+
 class AgentDecision(BaseModel):
     action: ActionType
     rationale: str = ""
