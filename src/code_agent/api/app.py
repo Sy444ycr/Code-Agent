@@ -176,7 +176,7 @@ def create_app(
                     cursor = event.sequence
                     yield _format_sse(event)
                 task = app.state.store.get_task(task_id)
-                if task is not None and task.status in _TERMINAL_STATES and not events:
+                if task is not None and task.status in _TERMINAL_STATES:
                     return
                 app.state.manager.wait_for_event(task_id, cursor, timeout=0.5)
 

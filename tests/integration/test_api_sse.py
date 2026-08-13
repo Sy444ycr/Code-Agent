@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -12,6 +13,7 @@ from code_agent.core.models import (
     Task,
     TaskRecovery,
     TaskStatus,
+    ToolAction,
 )
 from code_agent.storage import SQLiteStore
 
@@ -23,6 +25,26 @@ def wait_for_status(client: TestClient, task_id: str, status: str) -> None:
             return
         time.sleep(0.01)
     raise AssertionError(f"task did not reach {status}")
+
+
+def read_sse_events(client: TestClient, path: str) -> list[dict[str, object]]:
+    with client.stream("GET", path) as response:
+        body = response.read().decode()
+
+    assert response.status_code == 200
+    return [_parse_sse_block(block) for block in body.split("\n\n") if block.strip()]
+
+
+def _parse_sse_block(block: str) -> dict[str, object]:
+    parsed: dict[str, object] = {}
+    for line in block.splitlines():
+        if line.startswith("id: "):
+            parsed["id"] = int(line[4:])
+        elif line.startswith("event: "):
+            parsed["event"] = line[7:]
+        elif line.startswith("data: "):
+            parsed["data"] = json.loads(line[6:])
+    return parsed
 
 
 def test_create_task_returns_task_id(tmp_path) -> None:
@@ -281,7 +303,9 @@ def test_resume_rebuilds_mock_provider_after_startup_isolation(tmp_path) -> None
         assert event_types.index("recovery_started") < event_types.index("task_completed")
 
 
-def test_restart_recovery_stream_requires_manual_resume_and_preserves_order(tmp_path) -> None:
+def test_restart_recovery_events_endpoint_requires_manual_resume_and_preserves_order(
+    tmp_path,
+) -> None:
     state_path = tmp_path / "state.db"
     old_app = create_app(state_path=state_path)
     seeded_task = old_app.state.store.create_task(
@@ -352,6 +376,103 @@ def test_restart_recovery_stream_requires_manual_resume_and_preserves_order(tmp_
         assert "approval_decided" not in event_types
         assert events[-1]["payload"]["status"] == "succeeded"
         assert events[-1]["payload"]["report"] == "done after resume"
+
+
+def test_restart_recovery_events_stream_replays_first_step_only_after_resume(tmp_path) -> None:
+    state_path = tmp_path / "state.db"
+    old_app = create_app(state_path=state_path)
+    seeded_task = old_app.state.store.create_task(
+        Task(
+            workspace=str(tmp_path),
+            goal="stale-goal",
+            provider="mock",
+            status=TaskStatus.WAITING_APPROVAL,
+        ),
+        LoopSpec(goal="persisted-goal"),
+        recovery=TaskRecovery(
+            mock_decisions=[
+                AgentDecision(
+                    action="tool_call",
+                    tool_action=ToolAction(
+                        tool="write_file",
+                        arguments={"path": "restart-marker.txt", "content": "from-recovery"},
+                    ),
+                ),
+                AgentDecision(action="complete", completion_message="done after resume"),
+            ]
+        ),
+    )
+    seeded_approval = old_app.state.store.save_approval(
+        Approval(
+            task_id=seeded_task.id,
+            tool_call_id="tool-1",
+            reason="shell requires approval",
+        )
+    )
+    old_app.state.manager.shutdown()
+
+    with TestClient(create_app(state_path=state_path)) as client:
+        detail = client.get(f"/api/tasks/{seeded_task.id}")
+
+        assert detail.status_code == 200
+        assert detail.json()["status"] == "needs_review"
+        assert detail.json()["goal"] == "stale-goal"
+        assert detail.json()["loop_spec"]["goal"] == "persisted-goal"
+        assert detail.json()["recovery_required"] is True
+        assert detail.json()["resumable"] is True
+        assert detail.json()["pending_approvals"] == [
+            seeded_approval.model_dump(mode="json")
+        ]
+
+        stale_decision = client.post(
+            f"/api/approvals/{seeded_approval.id}/decision",
+            json={"approved": True, "scope": "once"},
+        )
+        assert stale_decision.status_code == 409
+
+        events_before_resume = read_sse_events(
+            client, f"/api/tasks/{seeded_task.id}/events/stream?after=0"
+        )
+        assert [event["event"] for event in events_before_resume] == [
+            "recovery_required"
+        ]
+        assert all(event["event"] != "task_completed" for event in events_before_resume)
+
+        resume = client.post(f"/api/tasks/{seeded_task.id}/resume")
+
+        assert resume.status_code == 200
+        wait_for_status(client, seeded_task.id, "succeeded")
+        resumed_events = read_sse_events(
+            client,
+            f"/api/tasks/{seeded_task.id}/events/stream?after={events_before_resume[-1]['id']}",
+        )
+
+        final_detail = client.get(f"/api/tasks/{seeded_task.id}")
+        assert final_detail.status_code == 200
+        assert final_detail.json()["status"] == "succeeded"
+        assert final_detail.json()["goal"] == "persisted-goal"
+        assert final_detail.json()["recovery_required"] is False
+        assert final_detail.json()["recovery_reason"] is None
+        assert final_detail.json()["resumable"] is False
+
+        all_events = events_before_resume + resumed_events
+        all_sequences = [event["id"] for event in all_events]
+        resumed_event_types = [event["event"] for event in resumed_events]
+        feedback_event = next(event for event in resumed_events if event["event"] == "feedback")
+        completion_event = next(
+            event for event in resumed_events if event["event"] == "task_completed"
+        )
+
+        assert all_sequences == list(range(1, len(all_events) + 1))
+        assert resumed_event_types[0] == "recovery_started"
+        assert "feedback" in resumed_event_types
+        assert resumed_event_types[-1] == "task_completed"
+        assert resumed_event_types.index("recovery_started") < resumed_event_types.index("feedback")
+        assert resumed_event_types.index("feedback") < resumed_event_types.index("task_completed")
+        assert feedback_event["data"]["payload"]["changed_files"] == ["restart-marker.txt"]
+        assert completion_event["data"]["payload"]["status"] == "succeeded"
+        assert completion_event["data"]["payload"]["report"] == "done after resume"
+        assert (tmp_path / "restart-marker.txt").read_text(encoding="utf-8") == "from-recovery"
 
 
 def test_resume_rejects_missing_workspace_without_starting_recovery(tmp_path) -> None:

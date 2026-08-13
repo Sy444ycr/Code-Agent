@@ -1,5 +1,15 @@
 # AGENT_LOG
 
+## 2026-08-13 — Task 25 / Task 5 fix round 1
+
+- 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery`、分支 `codex/task-25-restart-recovery` 接管 Task 5 修复，先按 TDD 只修改 `tests/integration/test_api_sse.py`，保留原先只覆盖 `/events` JSON 回放的测试并更名为 `events_endpoint`，同时新增真实消费 `/api/tasks/{id}/events/stream` 的重启恢复集成测试。
+- 红灯：运行 `$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests/integration/test_api_sse.py -k events_stream_replays_first_step_only_after_resume -q`。测试通过真实 SSE 打开重启隔离后的任务流，期望在人工 `resume` 前只看到 `recovery_required`，且旧 approval 决策返回 `409`；实际失败为 `KeyError`，根因是 SSE generator 回放完隔离态终态任务的现有事件后仍调用 `TaskManager.wait_for_event()`，而该任务没有活动 runtime。
+- 绿灯：最小实现只触碰 `src/code_agent/api/app.py`，将 `/events/stream` generator 的终态关闭条件从“终态且当前批次无事件”改为“终态即在回放完当前批次后直接关闭”，避免对无 runtime 的隔离任务继续等待。随后同一目标测试转绿。
+- 新增真实 SSE 测试 `test_restart_recovery_events_stream_replays_first_step_only_after_resume`：同一 `state.db` 中构造 `waiting_approval` 的 Mock 任务，关闭旧 app、启动新 app 后确认任务被隔离为 `needs_review`；先打开 `/events/stream?after=0` 只收到 `recovery_required`，确认不会自动出现 `task_completed`；再 `resume` 后从最后 sequence 继续打开 `/events/stream`，断言收到 `recovery_started`、`feedback`、`task_completed`，并通过 `feedback.payload.changed_files == ["restart-marker.txt"]` 与文件内容 `from-recovery` 证明恢复执行包含可区分的首步 `write_file`，而不是直接完成。
+- 针对性验证：`tests/integration/test_api_sse.py -q` 结果为 `15 passed, 35 warnings`；warnings 为既有 FastAPI `on_event` 与 Starlette TestClient/httpx 弃用提示。
+- 最终验证：`pytest -q` 结果 `159 passed, 1 skipped, 39 warnings`；`ruff check .` 为 `All checks passed!`；`mypy src` 为 `Success: no issues found in 33 source files`；`web\npm.cmd test -- --run` 为 `2 files passed / 8 tests passed`；`web\npm.cmd run build` 成功。Web 侧仍有既有 Vite `configLoader: 'native'` 迁移预警，不影响退出状态。
+- 过程与边界已同步写入 `SPEC_PROCESS.md` 与 `.superpowers/sdd/2026-08-13-task-25-restart-recovery/task-5-report.md`。本轮只修复 Task 5 所需的真实 SSE 恢复覆盖与终态关闭行为；未扩展到 checkpoint 续跑、真实 Provider E2E 或其他恢复语义。
+
 ## 2026-08-13 — Task 25 / Task 5：重启恢复端到端验收与中文过程记录
 
 - TDD 红灯：先在 `tests/integration/test_api_sse.py` 新增 `test_restart_recovery_stream_requires_manual_resume_and_preserves_order`，命令 `$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_restart_recovery_stream_requires_manual_resume_and_preserves_order -q` 首次失败；第一次为测试自身缺少 `Approval` 导入，修正后继续用同一条命令验证真实恢复链路。
