@@ -176,8 +176,10 @@ def normalized_commands(commands: list[str]) -> list[str]:
 def test_prepare_web_package_rejects_missing_frontend_dist(tmp_path: Path) -> None:
     (tmp_path / "src" / "code_agent").mkdir(parents=True)
 
-    with pytest.raises(WebPackagePreparationError, match="WebUI 构建产物缺失"):
+    with pytest.raises(WebPackagePreparationError) as error:
         prepare_web_package(tmp_path)
+
+    assert str(error.value) == "WebUI 构建产物缺失，请先运行 npm run build。"
 
 
 def test_prepare_web_package_copies_frontend_dist(tmp_path: Path) -> None:
@@ -203,8 +205,25 @@ def test_prepare_web_package_rejects_missing_referenced_asset(tmp_path: Path) ->
     )
     (tmp_path / "src" / "code_agent").mkdir(parents=True)
 
-    with pytest.raises(WebPackagePreparationError, match="WebUI 构建产物缺失"):
+    with pytest.raises(WebPackagePreparationError) as error:
         prepare_web_package(tmp_path)
+
+    assert str(error.value) == "WebUI 构建产物缺失，请先运行 npm run build。"
+
+
+def test_prepare_web_package_rejects_missing_nested_asset_reference(tmp_path: Path) -> None:
+    source = tmp_path / "web" / "dist" / "assets"
+    source.mkdir(parents=True)
+    (source.parent / "index.html").write_text(
+        '<script src="/assets/app.js"></script>', encoding="utf-8"
+    )
+    (source / "app.js").write_text('import "./missing-chunk.js"', encoding="utf-8")
+    (tmp_path / "src" / "code_agent").mkdir(parents=True)
+
+    with pytest.raises(WebPackagePreparationError) as error:
+        prepare_web_package(tmp_path)
+
+    assert str(error.value) == "WebUI 构建产物缺失，请先运行 npm run build。"
 
 
 def test_prepare_web_package_script_stages_assets(tmp_path: Path) -> None:
@@ -226,6 +245,22 @@ def test_prepare_web_package_script_stages_assets(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "src" / "code_agent" / "web_dist" / "assets" / "app.js").is_file()
+
+
+def test_prepare_web_package_script_reports_missing_assets_exactly(tmp_path: Path) -> None:
+    script = tmp_path / "scripts" / "prepare_web_package.py"
+    script.parent.mkdir()
+    script.write_text(
+        REPO_ROOT.joinpath("scripts", "prepare_web_package.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "code_agent").mkdir(parents=True)
+
+    result = run(sys.executable, str(script), cwd=tmp_path)
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "WebUI 构建产物缺失，请先运行 npm run build。\n"
 
 
 def test_ci_and_makefile_run_web_build_before_python_package() -> None:
@@ -272,6 +307,19 @@ def test_built_wheel_installs_with_web_assets_in_clean_venv(
     with zipfile.ZipFile(wheel) as archive:
         assert "code_agent/web_dist/index.html" in archive.namelist()
         assert "code_agent/cli.py" in archive.namelist()
+
+    sdist_source = tmp_path / "sdist-source"
+    with tarfile.open(sdist) as archive:
+        archive.extractall(sdist_source, filter="data")
+    extracted_project = next(sdist_source.iterdir())
+    rebuilt_output = tmp_path / "rebuilt-output"
+    rebuilt = run(
+        sys.executable, "-m", "build", "--outdir", str(rebuilt_output), cwd=extracted_project
+    )
+    assert rebuilt.returncode == 0, rebuilt.stderr
+    rebuilt_wheel = next(rebuilt_output.glob("code_agent-*.whl"))
+    with zipfile.ZipFile(rebuilt_wheel) as archive:
+        assert "code_agent/web_dist/index.html" in archive.namelist()
 
     venv_python = create_venv(tmp_path / "venv")
     install_wheel(venv_python, wheel)
