@@ -8,8 +8,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from code_agent.api.schemas import ApprovalDecisionRequest, TaskCreate
+from code_agent.application.providers import ProviderFactoryError, build_provider
 from code_agent.application.task_manager import TaskManager
-from code_agent.core.llm import MockLLMProvider
 from code_agent.core.models import LoopSpec, Task, TaskStatus
 from code_agent.storage import SQLiteStore
 
@@ -33,16 +33,22 @@ def create_app(
         workspace = Path(request.workspace).resolve()
         if not workspace.is_dir():
             raise HTTPException(status_code=400, detail="workspace does not exist")
-        if request.provider != "mock":
-            raise HTTPException(status_code=400, detail="only mock provider is supported")
+        try:
+            provider, provider_name = build_provider(
+                request.provider,
+                workspace,
+                mock_decisions=request.mock_decisions if request.provider == "mock" else None,
+            )
+        except ProviderFactoryError as exc:
+            raise HTTPException(status_code=400, detail="Provider 配置不可用。") from exc
         task = Task(
             workspace=str(workspace),
             goal=request.goal,
             mode=request.mode,
-            provider=request.provider,
+            provider=provider_name,
         )
         spec = LoopSpec(goal=request.goal, acceptance_checks=request.acceptance_checks)
-        running = app.state.manager.submit(task, spec, MockLLMProvider(request.mock_decisions))
+        running = app.state.manager.submit(task, spec, provider)
         return _task_response(running, [])
 
     @app.get("/api/tasks/{task_id}")

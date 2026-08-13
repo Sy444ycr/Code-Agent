@@ -26,6 +26,22 @@ def test_create_task_returns_task_id(tmp_path) -> None:
     assert response.json()["provider"] == "mock"
 
 
+def test_create_task_rejects_unconfigured_provider_before_submit(tmp_path) -> None:
+    app = create_app(state_path=tmp_path / "state.db")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/tasks",
+            json={
+                "workspace": str(tmp_path),
+                "goal": "inspect",
+                "provider": "openai",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Provider 配置不可用。"
+
+
 def test_events_endpoint_replays_ordered_events(tmp_path) -> None:
     client = TestClient(create_app(state_path=tmp_path / "state.db"))
     task_id = client.post(

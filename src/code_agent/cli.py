@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from code_agent import __version__, auth
+from code_agent.application.providers import ProviderFactoryError, build_provider
 from code_agent.application.scenarios import MockScenarioError, load_mock_decisions
 from code_agent.application.task_service import TaskService
 from code_agent.config import ProviderConfigurationError, resolve_provider_profile
@@ -37,7 +38,7 @@ def _normalize_provider_name(provider: str) -> str:
         raise CLIProviderError("Provider 名称无效。") from exc
 
 
-def build_provider(
+def _legacy_build_provider(
     name: str,
     workspace: Path,
     *,
@@ -98,7 +99,10 @@ def run(
         else:
             if mock_decisions is not None:
                 raise typer.BadParameter("非 Mock Provider 不接受 --mock-decisions")
-            llm_provider, provider_name = build_provider(provider_name, workspace)
+            try:
+                llm_provider, provider_name = build_provider(provider_name, workspace)
+            except ProviderFactoryError as exc:
+                raise CLIProviderError(str(exc)) from exc
     except CLIProviderError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
