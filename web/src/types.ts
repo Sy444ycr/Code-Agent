@@ -26,14 +26,17 @@ export interface TaskDetail {
   mode: PermissionMode;
   provider: string;
   pending_approvals: Approval[];
+  report?: string;
+  changed_files?: string[];
+  verification?: unknown[];
 }
 
 export interface TaskCreateInput {
   workspace: string;
   goal: string;
   mode: PermissionMode;
-  provider: "mock";
-  mock_decisions: unknown[];
+  provider: string;
+  mock_decisions?: unknown[];
   acceptance_checks: string[];
 }
 

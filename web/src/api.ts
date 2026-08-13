@@ -26,6 +26,8 @@ export function createTask(input: TaskCreateInput): Promise<TaskDetail> {
 export function getTask(id: string): Promise<TaskDetail> { return requestJson<TaskDetail>(`/api/tasks/${id}`, {}); }
 export function cancelTask(id: string): Promise<TaskDetail> { return requestJson<TaskDetail>(`/api/tasks/${id}/cancel`, { method: "POST" }); }
 export function resumeTask(id: string): Promise<TaskDetail> { return requestJson<TaskDetail>(`/api/tasks/${id}/resume`, { method: "POST" }); }
+export function getReport(id: string): Promise<TaskDetail> { return requestJson<TaskDetail>(`/api/tasks/${id}/report`, {}); }
+export function getDiff(id: string): Promise<{ diff: string }> { return requestJson<{ diff: string }>(`/api/tasks/${id}/diff`, {}); }
 export function decideApproval(id: string, approved: boolean, scope: "once" | "task"): Promise<unknown> { return requestJson(`/api/approvals/${id}/decision`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved, scope, actor: "web-user" }) }); }
 
 export function connectTaskEvents(id: string, after: number, onEvent: (event: TaskEvent) => void, onError: () => void): () => void {

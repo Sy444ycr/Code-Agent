@@ -4,5 +4,5 @@ interface TaskSummaryProps { task: TaskDetail; canResume?: boolean; onCancel: ()
 
 export function TaskSummary({ task, canResume = false, onCancel, onResume }: TaskSummaryProps) {
   const active = ["pending", "running", "waiting_approval"].includes(task.status);
-  return <section aria-label="task summary"><h2>{task.id}</h2><p>{task.status}</p><p>{task.goal}</p>{active && <button onClick={() => void onCancel()}>Cancel task</button>}{canResume && <button onClick={() => void onResume()}>Resume safely</button>}</section>;
+  return <section aria-label="task summary"><h2>{task.id}</h2><p>{task.status}</p><p>{task.goal}</p><p>Provider: {task.provider}</p>{task.report && <p>{task.report}</p>}{active && <button onClick={() => void onCancel()}>Cancel task</button>}{canResume && <button onClick={() => void onResume()}>Resume safely</button>}</section>;
 }
