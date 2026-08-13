@@ -166,9 +166,17 @@ def test_ci_and_makefile_run_web_build_before_python_package() -> None:
 
     assert "package:" in makefile
     assert "prepare_web_package.py" in makefile
-    assert makefile.index("npm run build") < makefile.index("python -m build")
-    assert github.index("npm run build") < github.index("python -m build")
-    assert gitlab.index("npm run build") < gitlab.index("python -m build")
+    for workflow in (makefile, github, gitlab):
+        assert workflow.index("npm test -- --run") < workflow.index("npm run build")
+        assert workflow.index("npm run build") < workflow.index("prepare_web_package.py")
+        assert workflow.index("prepare_web_package.py") < workflow.index("python -m build")
+
+    assert "image: python:3.12-bookworm" in gitlab
+    assert "https://deb.nodesource.com/setup_22.x" in gitlab
+    assert "apt-get install -y nodejs make" in gitlab
+    assert "needs:" in gitlab
+    assert "artifacts: true" in gitlab
+    assert "web/dist/" in gitlab
 
 
 def test_built_wheel_installs_with_web_assets_in_clean_venv(
