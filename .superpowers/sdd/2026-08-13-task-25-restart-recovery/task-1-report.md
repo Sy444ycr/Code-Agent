@@ -44,3 +44,31 @@
 
 - 当前工作区的包解析路径曾指向其他 worktree，因此验证命令显式设置了 `PYTHONPATH` 指向当前 worktree 的 `src`，以确保测试与实现来自同一份源码。
 - 简报未要求新增自动重放或 checkpoint 恢复，本次未实现。
+
+## 修复轮次 1 追加说明（并发幂等性）
+
+### 问题
+
+复核发现，`isolate_interrupted_tasks()` 在两个独立 `SQLiteStore` 连接并发调用时仍可能同时读到同一批 interrupted tasks，导致重复写入 `recovery_required` 事件。
+
+### 处理
+
+- 为 `isolate_interrupted_tasks()` 增加 `BEGIN IMMEDIATE` 事务边界，把读取、状态改写、恢复记录写入和事件追加收敛在同一个数据库事务中。
+- 保持其余写路径不变，仅修复跨连接并发下的原子认领问题。
+
+### 新增回归测试
+
+- `test_isolate_interrupted_tasks_claims_once_across_connections`
+  - 使用同一 SQLite 文件的两个独立 `SQLiteStore` 连接并发调用隔离逻辑
+  - 断言只有一个调用返回非空结果
+  - 断言只产生一次 `recovery_required` 事件
+  - 断言任务最终进入 `NEEDS_REVIEW`
+
+### 本轮验证
+
+- `pytest tests/integration/test_storage.py -q -k 'claims_once_across_connections'`
+- `pytest tests/integration/test_storage.py -q`
+- `ruff check src tests`
+- `mypy src`
+
+以上命令均通过。

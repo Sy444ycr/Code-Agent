@@ -1,4 +1,4 @@
-from threading import Thread
+from threading import Barrier, Thread
 
 from code_agent.core.models import (
     ActionType,
@@ -129,3 +129,38 @@ def test_isolate_interrupted_tasks_marks_only_non_terminal_tasks_once(tmp_path) 
     assert [event.type for event in store.events_after(running.id, 0)] == ["recovery_required"]
     assert [event.type for event in store.events_after(waiting.id, 0)] == ["recovery_required"]
     assert store.events_after(finished.id, 0) == []
+
+
+def test_isolate_interrupted_tasks_claims_once_across_connections(tmp_path) -> None:
+    path = tmp_path / "state.db"
+    loop_spec = LoopSpec(goal="goal")
+    creator = SQLiteStore(path)
+    task = creator.create_task(Task(workspace="/repo", goal="goal"), loop_spec)
+    store_a = SQLiteStore(path)
+    store_b = SQLiteStore(path)
+    barrier = Barrier(2)
+    results: list[list[Task]] = []
+    errors: list[Exception] = []
+
+    def isolate(store: SQLiteStore) -> None:
+        try:
+            barrier.wait()
+            results.append(store.isolate_interrupted_tasks())
+        except Exception as exc:
+            errors.append(exc)
+
+    thread_a = Thread(target=isolate, args=(store_a,))
+    thread_b = Thread(target=isolate, args=(store_b,))
+    thread_a.start()
+    thread_b.start()
+    thread_a.join()
+    thread_b.join()
+
+    assert errors == []
+    assert len(results) == 2
+    non_empty = [result for result in results if result]
+    assert len(non_empty) == 1
+    assert non_empty[0][0].id == task.id
+    assert store_a.get_task(task.id).status == TaskStatus.NEEDS_REVIEW
+    assert store_b.get_task(task.id).status == TaskStatus.NEEDS_REVIEW
+    assert [event.type for event in store_a.events_after(task.id, 0)] == ["recovery_required"]

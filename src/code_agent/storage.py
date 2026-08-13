@@ -170,6 +170,7 @@ class SQLiteStore:
 
     def isolate_interrupted_tasks(self) -> list[Task]:
         with self._lock:
+            self.connection.execute("BEGIN IMMEDIATE")
             rows = self.connection.execute("SELECT data FROM tasks ORDER BY rowid").fetchall()
             isolated: list[Task] = []
             for (data,) in rows:
