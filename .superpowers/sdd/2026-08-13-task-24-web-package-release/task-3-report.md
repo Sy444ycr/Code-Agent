@@ -60,3 +60,22 @@ $env:PYTHONPATH="src;."; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe 
 - 从 `index.html` 提取实际 `/assets/...` 路径并断言 200，验证客户端路由 SPA 回退为根页面。
 
 GREEN 验证：`tests/integration/test_package_install.py -q` 为 `3 passed in 98.53s`。
+
+## 第二轮复审修复
+
+### RED
+
+新增安装隔离要求：所有已安装 wheel 的 CLI 与服务命令都必须以 `tmp_path` 为工作目录，
+并移除 `PYTHONPATH` 与 `PYTHONHOME`；API 请求改为真实应用路由
+`/api/tasks/not-found`。旧测试会在源码目录执行 CLI，且仅检查由静态路由拒绝的 `/api`，
+因此不能证明上述两个约束。
+
+### GREEN
+
+测试在安装 wheel 后创建一个伪造的 `code_agent` 包并设置父进程 `PYTHONPATH` 指向它；
+验收辅助在启动 `web_assets --check`、两个 `code-agent --help` 命令和 Web 服务前复制环境后
+移除该变量及 `PYTHONHOME`，并始终使用 `tmp_path` 作为工作目录。这样任一子进程若继承
+源码/父进程路径都会导入伪造包并失败。HTTP 验收现在请求
+`/api/tasks/not-found`，由真实的应用路由返回 404。
+
+GREEN 验证：`tests/integration/test_package_install.py -q` 为 `3 passed in 94.27s`。

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from os import environ
 from os import name as os_name
 from pathlib import Path
 from re import findall
@@ -19,11 +20,12 @@ REQUEST_TIMEOUT_SECONDS = 10
 
 
 def run(
-    executable: Path | str, *arguments: str, cwd: Path = REPO_ROOT
+    executable: Path | str, *arguments: str, cwd: Path = REPO_ROOT, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(executable), *arguments],
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -43,12 +45,24 @@ def venv_executable(venv_path: Path, name: str) -> Path:
     return venv_path / scripts / f"{name}{suffix}"
 
 
-def run_code_agent(venv_python: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def installed_environment() -> dict[str, str]:
+    environment = dict(environ)
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    return environment
+
+
+def run_code_agent(
+    venv_python: Path, *arguments: str, cwd: Path, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(venv_executable(venv_python.parent.parent, "code-agent")), *arguments],
-        cwd=REPO_ROOT,
+        cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=120,
         check=False,
     )
@@ -142,25 +156,35 @@ def test_prepare_web_package_copies_frontend_dist(tmp_path: Path) -> None:
     assert (target / "assets" / "app.js").read_text(encoding="utf-8") == "console.log('WebUI')"
 
 
-def test_built_wheel_installs_with_web_assets_in_clean_venv(tmp_path: Path) -> None:
+def test_built_wheel_installs_with_web_assets_in_clean_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     wheel = build_project_wheel(REPO_ROOT, tmp_path / "wheel-output")
     with zipfile.ZipFile(wheel) as archive:
         assert "code_agent/web_dist/index.html" in archive.namelist()
 
     venv_python = create_venv(tmp_path / "venv")
     install_wheel(venv_python, wheel)
+    shadow = tmp_path / "shadow" / "code_agent"
+    shadow.mkdir(parents=True)
+    (shadow / "__init__.py").write_text("", encoding="utf-8")
+    (shadow / "web_assets.py").write_text("print('shadowed')", encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(shadow.parent))
+    environment = installed_environment()
 
-    assets_check = run(venv_python, "-m", "code_agent.web_assets", "--check")
+    assets_check = run(
+        venv_python, "-m", "code_agent.web_assets", "--check", cwd=tmp_path, env=environment
+    )
     assert assets_check.returncode == 0
     assert assets_check.stdout == "Web assets available\n"
-    assert assets_check.stdout == "Web assets available\n"
-    assert run_code_agent(venv_python, "--help").returncode == 0
-    assert run_code_agent(venv_python, "web", "--help").returncode == 0
+    assert run_code_agent(venv_python, "--help", cwd=tmp_path, env=environment).returncode == 0
+    assert run_code_agent(venv_python, "web", "--help", cwd=tmp_path, env=environment).returncode == 0
 
     port = available_port()
     process = subprocess.Popen(
         [str(venv_executable(venv_python.parent.parent, "code-agent")), "web", "--port", str(port)],
         cwd=tmp_path,
+        env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -176,7 +200,9 @@ def test_built_wheel_installs_with_web_assets_in_clean_venv(tmp_path: Path) -> N
         spa_fallback = httpx.get(
             f"http://127.0.0.1:{port}/client/route", timeout=REQUEST_TIMEOUT_SECONDS
         )
-        api = httpx.get(f"http://127.0.0.1:{port}/api", timeout=REQUEST_TIMEOUT_SECONDS)
+        api = httpx.get(
+            f"http://127.0.0.1:{port}/api/tasks/not-found", timeout=REQUEST_TIMEOUT_SECONDS
+        )
         assert root.status_code == 200
         assert '<div id="root">' in root.text
         assert static_asset.status_code == 200
