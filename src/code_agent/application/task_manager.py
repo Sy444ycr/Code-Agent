@@ -41,6 +41,7 @@ class TaskManager:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self._runtimes: dict[str, _Runtime] = {}
         self._lock = RLock()
+        self.store.isolate_interrupted_tasks()
 
     def submit(self, task: Task, loop_spec: LoopSpec, provider: LLMProvider) -> Task:
         with self._lock:
@@ -49,9 +50,36 @@ class TaskManager:
             self.store.create_task(task, loop_spec)
             running = task.model_copy(update={"status": TaskStatus.RUNNING})
             self.store.update_task(running)
-            runtime = _Runtime(task=running, provider=provider)
-            self._runtimes[task.id] = runtime
-            runtime.future = self.executor.submit(self._run, runtime, loop_spec)
+            self._start_runtime(running, loop_spec, provider)
+        return running
+
+    def recover(self, task_id: str, provider: LLMProvider) -> Task:
+        task = self.store.get_task(task_id)
+        recovery = self.store.get_recovery(task_id)
+        loop_spec = self.store.get_spec(task_id)
+        if (
+            task is None
+            or recovery is None
+            or not recovery.required
+            or loop_spec is None
+        ):
+            raise ValueError("not restart-recoverable")
+        if task.status != TaskStatus.NEEDS_REVIEW:
+            raise ValueError("not awaiting recovery")
+        with self._lock:
+            if task.id in self._runtimes:
+                raise ValueError(f"task {task.id} is already running")
+            running = task.model_copy(
+                update={"status": TaskStatus.RUNNING, "goal": loop_spec.goal}
+            )
+            self.store.update_task(running)
+            self.store.save_recovery(task_id, recovery.model_copy(update={"required": False}))
+            self.store.append_event(
+                task_id,
+                "recovery_started",
+                {"reason": "用户确认从头重新执行"},
+            )
+            self._start_runtime(running, loop_spec, provider)
         return running
 
     def get_task(self, task_id: str) -> Task | None:
@@ -92,7 +120,10 @@ class TaskManager:
             raise KeyError(approval_id)
         if approval.task_id is None:
             raise ValueError(f"approval {approval_id} is not attached to a task")
-        runtime = self._runtime(approval.task_id)
+        try:
+            runtime = self._runtime(approval.task_id)
+        except KeyError as exc:
+            raise ValueError("approval runtime conflict") from exc
         decided = self.store.decide_approval(approval_id, approved, scope, actor)
         with runtime.condition:
             runtime.approvals[approval_id] = ApprovalResolution(
@@ -115,6 +146,11 @@ class TaskManager:
         if runtime is None:
             raise KeyError(task_id)
         return runtime
+
+    def _start_runtime(self, task: Task, loop_spec: LoopSpec, provider: LLMProvider) -> None:
+        runtime = _Runtime(task=task, provider=provider)
+        self._runtimes[task.id] = runtime
+        runtime.future = self.executor.submit(self._run, runtime, loop_spec)
 
     def _run(self, runtime: _Runtime, loop_spec: LoopSpec) -> TaskRunResult:
         task = runtime.task
