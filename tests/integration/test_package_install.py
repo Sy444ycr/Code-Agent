@@ -306,6 +306,13 @@ def test_ci_and_makefile_run_web_build_before_python_package() -> None:
     ]
 
 
+def test_wheel_build_does_not_force_include_staged_web_assets() -> None:
+    pyproject = REPO_ROOT.joinpath("pyproject.toml").read_text(encoding="utf-8")
+
+    assert "[tool.hatch.build.force-include]" not in pyproject
+    assert "[tool.hatch.build.targets.sdist.force-include]" in pyproject
+
+
 def test_built_wheel_installs_with_web_assets_in_clean_venv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

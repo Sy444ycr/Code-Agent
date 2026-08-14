@@ -6,6 +6,7 @@
 venv
 env
 node_modules
+web/node_modules
 web/dist
 src/code_agent/web_dist
 dist

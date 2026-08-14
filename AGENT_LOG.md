@@ -1,5 +1,12 @@
 # AGENT_LOG
 
+## 2026-08-14 — Task 26 Docker 运行时补验收
+
+- 启动 Docker Desktop 后执行 `CODE_AGENT_RUN_DOCKER_E2E=1`。首次容器构建使用最新版 Hatchling，发现全局 `force-include` 会重复加入 `code_agent/web_dist/index.html`，导致 wheel 构建失败。
+- 先写配置契约并将资产配置拆分为 wheel `artifacts` 与 sdist 专用 `force-include`；`tests/integration/test_package_install.py` 为 `9 passed`，Docker image build 成功。
+- E2E 夹具同时修正 Compose 覆盖端口的 `!override` 语义、服务启动时短暂断连轮询和根页面 HTML 就绪检查；显式 Docker 验收为 `4 passed`，覆盖 WebUI、Mock 任务、容器重启和 SQLite 持久化。
+- `.dockerignore` 显式排除 `web/node_modules`，构建上下文从约 125MB 降至 5.83kB。最终 Python 全量验证为 `169 passed, 2 skipped, 47 warnings`；警告为既有 FastAPI/Starlette 弃用提示。
+
 ## 2026-08-14 — Task 25 最终审查 Important 修复
 
 - 工作区与范围：全程在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery`、分支 `codex/task-25-restart-recovery` 工作，只修改用户允许的 TaskManager、storage、SSE、两组集成测试与指定中文过程文档；未修改 Web/TUI 源码。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import shutil
@@ -18,6 +19,7 @@ ROOT = Path(__file__).parents[2]
 def test_deployment_configuration_contract() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
 
     assert "FROM node:22-bookworm AS web-build" in dockerfile
     assert "npm ci" in dockerfile
@@ -35,6 +37,7 @@ def test_deployment_configuration_contract() -> None:
     assert "code-agent-state:/var/lib/code-agent" in service["volumes"]
     assert service["healthcheck"]["test"] == ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
     assert compose["volumes"] == {"code-agent-state": {}}
+    assert "web/node_modules" in dockerignore
 
 
 def test_app_uses_state_path_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,7 +64,7 @@ def test_compose_serves_webui_and_preserves_state(tmp_path: Path) -> None:
     host_port = 18000 + (os.getpid() % 1000)
     override = tmp_path / "docker-compose.override.yml"
     override.write_text(
-        "services:\n  code-agent:\n    ports:\n      - "
+        "services:\n  code-agent:\n    ports: !override\n      - "
         f'"{host_port}:8000"\n',
         encoding="utf-8",
     )
@@ -94,6 +97,10 @@ def test_compose_serves_webui_and_preserves_state(tmp_path: Path) -> None:
         with urllib.request.urlopen(request_object, timeout=5) as response:
             return json.loads(response.read())
 
+    def service_ready() -> bool:
+        with urllib.request.urlopen(f"http://127.0.0.1:{host_port}/", timeout=5) as response:
+            return response.status == 200
+
     try:
         started = run("up", "-d", "--build")
         if started.returncode != 0:
@@ -101,9 +108,9 @@ def test_compose_serves_webui_and_preserves_state(tmp_path: Path) -> None:
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             try:
-                request("/")
-                break
-            except (urllib.error.URLError, TimeoutError):
+                if service_ready():
+                    break
+            except (http.client.RemoteDisconnected, urllib.error.URLError, TimeoutError):
                 time.sleep(2)
         else:
             logs = run("logs", "--no-color")
@@ -136,7 +143,7 @@ def test_compose_serves_webui_and_preserves_state(tmp_path: Path) -> None:
             try:
                 persisted = request(f"/api/tasks/{task_id}")
                 break
-            except (urllib.error.URLError, TimeoutError):
+            except (http.client.RemoteDisconnected, urllib.error.URLError, TimeoutError):
                 time.sleep(1)
         else:
             pytest.fail("容器重启后服务未恢复。")
