@@ -205,6 +205,15 @@
 
 按时间顺序记录 AI 协作开发过程中的关键事件。
 
+## 2026-08-14 — Task 26
+
+- 工作区：`codex/task26-ecs-deployment`，路径为 `.worktrees/task26-ecs-deployment`；按用户要求全程当前会话内联串行，未派 subagent。
+- Task 1 红灯：`test_deployment_configuration_contract` 因 `Dockerfile`/Compose 文件缺失失败；绿灯：静态契约 `1 passed`，`docker compose config` 成功。提交 `6f60f21`。
+- Task 2 红灯：环境变量路径测试确认 `create_app()` 忽略 `CODE_AGENT_STATE_PATH`；绿灯：路径测试与静态契约 `2 passed, 1 skipped`，并修复服务读取挂载卷路径。Docker daemon 未运行，真实容器 E2E 未执行。提交 `297710c`。
+- Task 3 红灯：GitLab 契约因缺少 `unit-test` job 失败；绿灯：CI 契约 `1 passed`，相关 package-install 测试前 7 项 `7 passed`。最后一个干净 venv wheel 安装测试因依赖安装在 124 秒内未返回而超时，未记为通过。提交 `7381750`。
+- Task 4 红灯：文档契约因 `deploy/ecs-ubuntu.md` 不存在失败；绿灯：完成中文 ECS 清单、README/PLAN/过程记录更新，并通过文档契约。Docker E2E 与完整离线发布验证仍受本机 Docker daemon/依赖安装环境限制。
+- 人工审查：逐任务检查 diff 范围、Compose 端口/卷/健康检查、Mock Provider 默认边界、CI 依赖顺序和文档安全约束；未发现 Critical/Important 问题。警告仍包括既有 FastAPI `on_event` 弃用提示。
+
 ## 2026-07-10
 
 - 初始化本地 Git 仓库。

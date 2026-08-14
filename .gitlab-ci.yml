@@ -1,4 +1,4 @@
-stages: [web, package]
+stages: [web, unit-test, package]
 
 web-build:
   stage: web
@@ -9,12 +9,21 @@ web-build:
     paths:
       - web/dist/
 
+unit-test:
+  stage: unit-test
+  image: python:3.12-bookworm
+  script:
+    - pip install -e ".[dev]"
+    - make verify
+
 package:
   stage: package
   image: python:3.12-bookworm
   needs:
     - job: web-build
       artifacts: true
+    - job: unit-test
+      artifacts: false
   before_script:
     - apt-get update
     - apt-get install -y curl
