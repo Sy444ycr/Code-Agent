@@ -281,8 +281,18 @@ def test_ci_and_makefile_run_web_build_before_python_package() -> None:
     ]
 
     web_build = gitlab["web-build"]
+    unit_test = gitlab["unit-test"]
     package = gitlab["package"]
-    assert package["needs"] == [{"job": "web-build", "artifacts": True}]
+    assert gitlab["stages"] == ["web", "unit-test", "package"]
+    assert unit_test["image"] == "python:3.12-bookworm"
+    assert normalized_commands(unit_test["script"]) == ['pip install -e ".[dev]"', "make verify"]
+    assert "CODE_AGENT_RUN_PROVIDER_E2E" not in str(unit_test)
+    assert "CODE_AGENT_RUN_DOCKER_E2E" not in str(unit_test)
+    assert package["needs"] == [
+        {"job": "web-build", "artifacts": True},
+        {"job": "unit-test", "artifacts": False},
+    ]
+    assert {need["job"] for need in package["needs"]} == {"web-build", "unit-test"}
     assert web_build["artifacts"]["paths"] == ["web/dist/"]
     assert package["image"] == "python:3.12-bookworm"
     assert "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -" in package["before_script"]
