@@ -91,15 +91,15 @@ def run(
         provider_name = _normalize_provider_name(provider)
         if provider_name == "mock":
             if mock_decisions is None:
-                raise typer.BadParameter("mock Provider 必须提供 --mock-decisions")
+                raise CLIProviderError("mock Provider 必须提供 --mock-decisions")
             try:
                 decisions = load_mock_decisions(mock_decisions)
             except MockScenarioError as exc:
-                raise typer.BadParameter("Mock 场景无效。") from exc
+                raise CLIProviderError("Mock 场景无效。") from exc
             llm_provider: LLMProvider = MockLLMProvider(decisions)
         else:
             if mock_decisions is not None:
-                raise typer.BadParameter("非 Mock Provider 不接受 --mock-decisions")
+                raise CLIProviderError("非 Mock Provider 不接受 --mock-decisions")
             try:
                 llm_provider, provider_name = build_provider(provider_name, workspace)
             except ProviderFactoryError as exc:
