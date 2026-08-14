@@ -6,6 +6,8 @@
 
 在 brainstorming 阶段填写。
 
+2026-08-14 用户确认 Task 26 的“课程交付闭环”范围：补齐 GitLab `unit-test`、修正 README/PLAN 的实现状态、提供可复现部署与发布验收，真实 Provider E2E 继续保持显式可选。经讨论，用户已有一台 4 vCPU/8 GiB 的阿里云 Windows Server 2022 ECS，愿意重装；由于 Docker Desktop 不支持 Windows Server 且现有镜像目标为 Linux，选择将服务器重装为 Ubuntu 22.04 LTS，再使用 Docker Compose 部署。当前账户没有可用域名，且中国大陆服务器使用域名需备案，因此首轮按公网 IP/HTTP 完成课程演示，域名、备案与 HTTPS 明确留为后续增强。设计文档保存至 `docs/superpowers/specs/2026-08-14-task-26-ecs-deployment-design.md`，并已获得用户确认。
+
 ## Writing-plans 记录
 
 2026-08-13 按已确认的 Task 23 设计与实施计划执行：在隔离 worktree 中完成 ProviderFactory、API artifact、CLI 生命周期命令、TUI/WebUI Provider 贯通、`code-agent web` 静态资源托管和四类离线规格演示。每个子项目均先运行红灯测试，再实现最小代码并运行绿灯测试；最终证据见 `AGENT_LOG.md`。
