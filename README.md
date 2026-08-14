@@ -40,7 +40,7 @@ docker compose ps
 docker compose logs --tail=100 code-agent
 ```
 
-服务监听主机的 TCP 80；浏览器访问 `http://<服务器地址>/`。停止服务但保留任务数据：
+服务监听主机的 TCP 80；课程演示 WebUI 已部署在 <http://121.40.241.117/>。停止服务但保留任务数据：
 
 ```bash
 docker compose down
@@ -202,7 +202,7 @@ docker compose ps
 docker compose logs --tail=100 code-agent
 ```
 
-确认 `docker compose ps` 显示 `healthy` 后，从浏览器访问 `http://<ECS公网IP>/`。这是一条用于课程演示的 IP/HTTP 路径；本项目未将域名、HTTPS、多用户访问控制、备份或长期公网运营作为本次交付范围。
+确认 `docker compose ps` 显示 `healthy` 后，从浏览器访问 <http://121.40.241.117/>。这是一条用于课程演示的 IP/HTTP 路径；本项目未将域名、HTTPS、多用户访问控制、备份或长期公网运营作为本次交付范围。
 
 ## Provider 与安全边界
 
@@ -221,6 +221,17 @@ npm run build
 ```
 
 启用真实 Provider 或 Docker 端到端测试需要显式设置相应环境变量；默认测试和 CI 使用离线 Mock Provider，不会读取真实凭据或访问真实模型服务。
+
+## 目录结构
+
+```text
+src/code_agent/       Harness 内核、Provider、API、CLI 与 TUI
+web/                  React WebUI 源码、测试与构建配置
+tests/                单元测试与集成测试
+demos/                Mock LLM 机制演示脚本
+deploy/               Ubuntu ECS 部署清单
+docs/superpowers/     规格、实施计划与过程设计记录
+```
 
 ## 仓库文档
 
