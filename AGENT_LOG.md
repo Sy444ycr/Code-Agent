@@ -1,5 +1,49 @@
 # AGENT_LOG
 
+## 2026-08-14 — Task 25 最终审查 Important 修复
+
+- 工作区与范围：全程在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery`、分支 `codex/task-25-restart-recovery` 工作，只修改用户允许的 TaskManager、storage、SSE、两组集成测试与指定中文过程文档；未修改 Web/TUI 源码。
+- A 红灯：真实 `submit` 出来的 worker 已处于 `waiting_approval` 且 future 未完成，shutdown 线程在 0.5 秒后仍存活，`assert shutdown_returned` 失败。绿灯：runtime 使用区别于 cancel 的 service-stop 信号；`shutdown()` set+notify 后审批 handler 非终态退出，下次 manager 启动将任务隔离为 `needs_review`。
+- B 红灯：恢复 claim 后旧 approval 仍为 `pending`。绿灯：`claim_recovery` 在同一个 `BEGIN IMMEDIATE` 事务内将旧 pending approvals 标为 `rejected`；旧 decision 返回冲突且记录不变，恢复 worker 生成的新 approval 可继续批准。
+- C 再复审红灯：注入的 `executor.submit` 失败函数内部读到已提交的 sequence 2 `recovery_started`，证明“失败后删除”仍允许伪事件对外可见并复用 sequence。绿灯：claim 事务不再写事件；`_start_runtime` 提交受门闩阻塞的 worker，提交成功后追加 `recovery_started` 再放行；submit 失败只恢复 `needs_review + required=True`，不删除事件，旧 approval 保持 `rejected`。失败窗口、失败后历史与成功重试游标/连续 sequence 均有确定性断言。
+- D 再复审红灯：真实活动 runtime 已写入 `needs_review`、worker 阻塞在 `task_completed` 追加前时，SSE 未调用 `wait_for_event` 就关闭。绿灯：去掉对 `needs_review` 的无条件提前关闭；活动 runtime 有限等待并回放完成事件，无 runtime 仍以 `KeyError` 立即关闭，`after == task_completed.sequence` 仍立即关闭。
+- E：随后读取/断言完成事件的时序测试继续显式等待 `task_completed`；根目录与 SDD 的 `task-5-report.md` 保持统一，`SPEC_PROCESS.md` 同步更正结论。
+- 目标验证：`tests/integration/test_task_manager.py tests/integration/test_api_sse.py -q` 为 `36 passed, 41 warnings`。
+- 最终验证：Python 全量为 `165 passed, 1 skipped, 45 warnings`；Ruff 为 `All checks passed!`；Mypy 为 `Success: no issues found in 33 source files`；Web 为 `2 files / 8 tests passed`；Web build 成功。警告仍是既有 FastAPI/Starlette 弃用提示与 Vite native config loader 迁移预警。
+
+## 2026-08-13 — Task 25 / Task 5 final fix wave
+
+- 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery` 按用户指定的唯一 fix wave 执行最终集中修复；修改范围严格限定为 `src/code_agent/api/app.py`、`tests/integration/test_api_sse.py`、`AGENT_LOG.md`、`SPEC_PROCESS.md`、`.superpowers/sdd/2026-08-13-task-25-restart-recovery/task-5-report.md`。
+- TDD 新红灯：先在 `tests/integration/test_api_sse.py` 新增 `test_events_stream_replays_terminal_completion_before_closing`，通过受控替身让同一终态任务的 `/events/stream` 首轮只能看到 `feedback`、第二轮才返回 `task_completed`，精确复现“任务状态已终态，但 `task_completed` 尚未出现在当前批次 `events_after()` 结果中”的窗口。命令 `$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_events_stream_replays_terminal_completion_before_closing -q` 失败，实际只收到 `['feedback']`，证明当前 SSE 会在终态时过早关闭。
+- 根因证据：`src/code_agent/api/app.py` 的 SSE generator 在每轮回放完成后只要看到任务 `status in _TERMINAL_STATES` 就立即 `return`，没有再次确认本轮之后是否已能读取到 `task_completed`；而 `TaskManager._run()` 中顺序是先 `update_task(final_task)`、后 `append_event("task_completed", ...)`，因此存在短窗口会漏掉最终完成事件。
+- 最小修复：仅调整 `src/code_agent/api/app.py` 的 `/events/stream` generator。终态时若当前批次已看到 `task_completed` 则立即关闭；若未看到，则只做一次终态补回看/有限等待，再次读取 `events_after()`；对 `needs_review` 这类无活动 runtime 的终态任务仍直接关闭，并在等待 runtime 时捕获 `KeyError`，避免无限等待或再次因无 runtime 失败。
+- 绿灯证据：新增红灯命令转为 `1 passed, 3 warnings`；原真实恢复 SSE 回归命令 `$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_restart_recovery_events_stream_replays_first_step_only_after_resume -q` 仍为 `1 passed, 5 warnings`，证明修复既补上终态漏事件窗口，也没有破坏“恢复前只能看到 recovery_required、resume 后才继续”的既有语义。
+- 本轮完成后，旧的“隔离后、恢复前直接拉取无活动 runtime 的 SSE stream 仍可能失败” concern 已不再成立；`SPEC_PROCESS.md` 已改正，`task-5-report.md` 追加了新的红绿证据与最终边界说明。
+
+## 2026-08-13 — Task 25 / Task 5 fix round 1
+
+- 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery`、分支 `codex/task-25-restart-recovery` 接管 Task 5 修复，先按 TDD 只修改 `tests/integration/test_api_sse.py`，保留原先只覆盖 `/events` JSON 回放的测试并更名为 `events_endpoint`，同时新增真实消费 `/api/tasks/{id}/events/stream` 的重启恢复集成测试。
+- 红灯：运行 `$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests/integration/test_api_sse.py -k events_stream_replays_first_step_only_after_resume -q`。测试通过真实 SSE 打开重启隔离后的任务流，期望在人工 `resume` 前只看到 `recovery_required`，且旧 approval 决策返回 `409`；实际失败为 `KeyError`，根因是 SSE generator 回放完隔离态终态任务的现有事件后仍调用 `TaskManager.wait_for_event()`，而该任务没有活动 runtime。
+- 绿灯：最小实现只触碰 `src/code_agent/api/app.py`，将 `/events/stream` generator 的终态关闭条件从“终态且当前批次无事件”改为“终态即在回放完当前批次后直接关闭”，避免对无 runtime 的隔离任务继续等待。随后同一目标测试转绿。
+- 新增真实 SSE 测试 `test_restart_recovery_events_stream_replays_first_step_only_after_resume`：同一 `state.db` 中构造 `waiting_approval` 的 Mock 任务，关闭旧 app、启动新 app 后确认任务被隔离为 `needs_review`；先打开 `/events/stream?after=0` 只收到 `recovery_required`，确认不会自动出现 `task_completed`；再 `resume` 后从最后 sequence 继续打开 `/events/stream`，断言收到 `recovery_started`、`feedback`、`task_completed`，并通过 `feedback.payload.changed_files == ["restart-marker.txt"]` 与文件内容 `from-recovery` 证明恢复执行包含可区分的首步 `write_file`，而不是直接完成。
+- 针对性验证：`tests/integration/test_api_sse.py -q` 结果为 `15 passed, 35 warnings`；warnings 为既有 FastAPI `on_event` 与 Starlette TestClient/httpx 弃用提示。
+- 最终验证：`pytest -q` 结果 `159 passed, 1 skipped, 39 warnings`；`ruff check .` 为 `All checks passed!`；`mypy src` 为 `Success: no issues found in 33 source files`；`web\npm.cmd test -- --run` 为 `2 files passed / 8 tests passed`；`web\npm.cmd run build` 成功。Web 侧仍有既有 Vite `configLoader: 'native'` 迁移预警，不影响退出状态。
+- 过程与边界已同步写入 `SPEC_PROCESS.md` 与 `.superpowers/sdd/2026-08-13-task-25-restart-recovery/task-5-report.md`。本轮只修复 Task 5 所需的真实 SSE 恢复覆盖与终态关闭行为；未扩展到 checkpoint 续跑、真实 Provider E2E 或其他恢复语义。
+
+## 2026-08-13 — Task 25 / Task 5：重启恢复端到端验收与中文过程记录
+
+- TDD 红灯：先在 `tests/integration/test_api_sse.py` 新增 `test_restart_recovery_stream_requires_manual_resume_and_preserves_order`，命令 `$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_restart_recovery_stream_requires_manual_resume_and_preserves_order -q` 首次失败；第一次为测试自身缺少 `Approval` 导入，修正后继续用同一条命令验证真实恢复链路。
+- TDD 绿灯：新增验收测试覆盖同一 `state.db` 中旧的待审批/未终态任务，在新 app 启动后被隔离为 `needs_review`，详情字段正确暴露 `goal`、`loop_spec.goal`、`recovery_required`、`recovery_reason` 与 `pending_approvals`；旧 approval 不自动执行，`resume` 后从头运行到 `succeeded`；事件序号严格递增，且包含 `recovery_required`、`recovery_started`、`task_completed`。目标命令最终结果为 `1 passed, 5 warnings`。
+- 针对性回归：`$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py -q` 结果为 `14 passed, 31 warnings`。
+- 最终验证：
+  - `$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest -q` → `158 passed, 1 skipped, 35 warnings`
+  - `C:\Users\sy444\Desktop\Agents\.venv\Scripts\ruff.exe check .` → `All checks passed!`
+  - `C:\Users\sy444\Desktop\Agents\.venv\Scripts\mypy.exe src` → `Success: no issues found in 33 source files`
+  - `web\npm.cmd test -- --run` → `2 passed (files), 8 passed (tests)`
+  - `web\npm.cmd run build` → 构建通过，`✓ built in 307ms`
+- warnings 记录：Python 侧仍为既有 `fastapi.testclient` / `starlette.testclient` 弃用警告，以及 FastAPI `on_event` 弃用警告；Web 侧仍为既有 Vite `configLoader: 'native'` 迁移预告，均未影响退出状态。
+- 恢复边界：本任务只验证“重启后隔离 + 人工 resume + 从头重跑 + 事件顺序”；不自动重放旧 approval，不验证 checkpoint 续跑位置，不触达真实 Provider E2E。另有一个现存 concern：隔离后、恢复前若直接拉取无活动 runtime 的 SSE stream，当前实现仍可能失败；因 brief 明确限制修改范围，本任务未扩展到源码修复。
+
 ## 2026-08-13 — Task 24：WebUI 打包、CI 与干净安装验收
 
 - 红灯：新增发布顺序验收后执行 `$env:PYTHONPATH="src;."; .\.venv\Scripts\python.exe -m pytest tests/integration/test_package_install.py -q`，结果为 `1 failed, 3 passed`；`Makefile` 缺少 `package` 目标，GitHub CI 也在 Python 打包之后运行前端构建。

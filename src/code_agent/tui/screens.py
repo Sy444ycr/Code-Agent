@@ -16,6 +16,10 @@ if TYPE_CHECKING:
     from code_agent.tui.app import CodeAgentTui
 
 
+RECOVERY_REVIEW_REASON = "服务重启后需人工复核"
+RECOVERY_RERUN_HINT = "从头重新执行"
+
+
 class StartScreen(Screen[None]):
     def compose(self) -> Iterator[Label | Input | Button]:
         yield Label("Workspace")
@@ -299,6 +303,16 @@ class ResultScreen(Screen[None]):
         report = detail.get("report") or detail.get("result_report")
         if not isinstance(report, str) or not report.strip():
             report = "服务端未提供结果报告"
+        recovery_reason = _recovery_reason(detail)
+        yield Static(
+            "\n".join(
+                [f"状态：{detail.get('status', '-')}", f"任务 ID：{app.task_id or '-'}"]
+                + ([recovery_reason] if recovery_reason is not None else [])
+            ),
+            id="result-summary",
+        )
+        if recovery_reason is not None:
+            yield Static(RECOVERY_RERUN_HINT, id="recovery-hint")
         yield Static(
             "\n".join(
                 [
@@ -315,7 +329,11 @@ class ResultScreen(Screen[None]):
     async def action_resume_task(self) -> None:
         app = cast("CodeAgentTui", self.app)
         detail = app.task_detail or {}
-        if detail.get("status") != "cancelled" or app.client is None or app.task_id is None:
+        if (
+            not _is_resumable(detail)
+            or app.client is None
+            or app.task_id is None
+        ):
             return
         try:
             await asyncio.to_thread(app.client.resume_task, app.task_id)
@@ -340,3 +358,14 @@ def _event_summary(events_: list[dict[str, object]]) -> str:
             summary = event.get("type", "event")
         lines.append(f"#{event.get('sequence', '?')} {summary}")
     return "\n".join(lines)
+
+
+def _recovery_reason(detail: dict[str, object]) -> str | None:
+    if detail.get("recovery_required") is not True:
+        return None
+    reason = detail.get("recovery_reason")
+    return reason if isinstance(reason, str) and reason.strip() else RECOVERY_REVIEW_REASON
+
+
+def _is_resumable(detail: dict[str, object]) -> bool:
+    return detail.get("status") == "needs_review" and detail.get("resumable") is True

@@ -102,4 +102,59 @@ describe("App", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks/task-1/cancel", expect.objectContaining({ method: "POST" }));
   });
+
+  it("explains that restart recovery reruns from the beginning", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "task-1",
+        status: "needs_review",
+        workspace: "/repo",
+        goal: "inspect",
+        mode: "supervised",
+        provider: "mock",
+        pending_approvals: [],
+        recovery_required: true,
+        recovery_reason: "服务重启后需人工复核",
+        resumable: true,
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "task-1",
+        status: "needs_review",
+        report: "需要人工复核",
+      })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App initialTaskId="task-1" />);
+
+    expect(await screen.findByText("服务重启后需人工复核")).toBeInTheDocument();
+    expect(screen.getByText("从头重新执行")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /resume safely/i })).toBeEnabled();
+  });
+
+  it("does not show resume action for manual needs review tasks", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "task-1",
+        status: "needs_review",
+        workspace: "/repo",
+        goal: "inspect",
+        mode: "supervised",
+        provider: "mock",
+        pending_approvals: [],
+        recovery_required: false,
+        recovery_reason: null,
+        resumable: false,
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "task-1",
+        status: "needs_review",
+        report: "需要人工复核",
+      })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App initialTaskId="task-1" />);
+
+    expect(await screen.findByText("needs_review")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /resume safely/i })).not.toBeInTheDocument();
+  });
 });

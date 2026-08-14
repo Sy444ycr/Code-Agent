@@ -8,7 +8,7 @@ from threading import RLock
 from uuid import uuid4
 
 from code_agent.core.events import Event
-from code_agent.core.models import Approval, LoopSpec, Task
+from code_agent.core.models import Approval, LoopSpec, Task, TaskRecovery, TaskStatus
 
 
 class SQLiteStore:
@@ -24,17 +24,63 @@ class SQLiteStore:
             "type TEXT, payload TEXT, created_at TEXT, PRIMARY KEY(task_id, sequence));"
             "CREATE TABLE IF NOT EXISTS checkpoints(task_id TEXT PRIMARY KEY, payload TEXT);"
             "CREATE TABLE IF NOT EXISTS approvals(id TEXT PRIMARY KEY, data TEXT);"
+            "CREATE TABLE IF NOT EXISTS recoveries(task_id TEXT PRIMARY KEY, data TEXT);"
         )
 
-    def create_task(self, task: Task, loop_spec: LoopSpec) -> Task:
+    def _write_task(self, task: Task) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
+        )
+
+    def _write_spec(self, task_id: str, loop_spec: LoopSpec) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO specs VALUES (?, ?)",
+            (task_id, loop_spec.model_dump_json()),
+        )
+
+    def _write_approval(self, approval: Approval) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO approvals VALUES (?, ?)",
+            (approval.id, approval.model_dump_json()),
+        )
+
+    def _write_recovery(self, task_id: str, recovery: TaskRecovery) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO recoveries VALUES (?, ?)",
+            (task_id, recovery.model_dump_json()),
+        )
+
+    def _append_event(self, task_id: str, event_type: str, payload: dict[str, object]) -> Event:
+        sequence = self.connection.execute(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE task_id = ?", (task_id,)
+        ).fetchone()[0]
+        event = Event(
+            id=str(uuid4()), task_id=task_id, sequence=sequence, type=event_type, payload=payload
+        )
+        self.connection.execute(
+            "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                event.id,
+                task_id,
+                sequence,
+                event_type,
+                json.dumps(payload),
+                event.created_at.isoformat(),
+            ),
+        )
+        return event
+
+    def create_task(
+        self,
+        task: Task,
+        loop_spec: LoopSpec,
+        recovery: TaskRecovery | None = None,
+    ) -> Task:
         with self._lock:
-            self.connection.execute(
-                "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
-            )
-            self.connection.execute(
-                "INSERT OR REPLACE INTO specs VALUES (?, ?)",
-                (task.id, loop_spec.model_dump_json()),
-            )
+            self._write_task(task)
+            self._write_spec(task.id, loop_spec)
+            if recovery is not None:
+                self._write_recovery(task.id, recovery)
             self.connection.commit()
         return task
 
@@ -47,18 +93,13 @@ class SQLiteStore:
 
     def update_task(self, task: Task) -> Task:
         with self._lock:
-            self.connection.execute(
-                "INSERT OR REPLACE INTO tasks VALUES (?, ?)", (task.id, task.model_dump_json())
-            )
+            self._write_task(task)
             self.connection.commit()
         return task
 
     def save_approval(self, approval: Approval) -> Approval:
         with self._lock:
-            self.connection.execute(
-                "INSERT OR REPLACE INTO approvals VALUES (?, ?)",
-                (approval.id, approval.model_dump_json()),
-            )
+            self._write_approval(approval)
             self.connection.commit()
         return approval
 
@@ -68,6 +109,19 @@ class SQLiteStore:
                 "SELECT data FROM approvals WHERE id = ?", (approval_id,)
             ).fetchone()
         return Approval.model_validate_json(row[0]) if row else None
+
+    def save_recovery(self, task_id: str, recovery: TaskRecovery) -> TaskRecovery:
+        with self._lock:
+            self._write_recovery(task_id, recovery)
+            self.connection.commit()
+        return recovery
+
+    def get_recovery(self, task_id: str) -> TaskRecovery | None:
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT data FROM recoveries WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        return TaskRecovery.model_validate_json(row[0]) if row else None
 
     def get_spec(self, task_id: str) -> LoopSpec | None:
         with self._lock:
@@ -111,34 +165,99 @@ class SQLiteStore:
                     "actor": actor,
                 }
             )
-            self.connection.execute(
-                "INSERT OR REPLACE INTO approvals VALUES (?, ?)",
-                (decided.id, decided.model_dump_json()),
-            )
+            self._write_approval(decided)
             self.connection.commit()
         return decided
 
-    def append_event(self, task_id: str, type: str, payload: dict[str, object]) -> Event:
+    def append_event(self, task_id: str, event_type: str, payload: dict[str, object]) -> Event:
         with self._lock:
-            sequence = self.connection.execute(
-                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM events WHERE task_id = ?", (task_id,)
-            ).fetchone()[0]
-            event = Event(
-                id=str(uuid4()), task_id=task_id, sequence=sequence, type=type, payload=payload
-            )
-            self.connection.execute(
-                "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    event.id,
-                    task_id,
-                    sequence,
-                    type,
-                    json.dumps(payload),
-                    event.created_at.isoformat(),
-                ),
-            )
+            event = self._append_event(task_id, event_type, payload)
             self.connection.commit()
         return event
+
+    def claim_recovery(self, task_id: str) -> tuple[Task, LoopSpec]:
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                task = self.get_task(task_id)
+                recovery = self.get_recovery(task_id)
+                loop_spec = self.get_spec(task_id)
+                if (
+                    task is None
+                    or recovery is None
+                    or not recovery.required
+                    or loop_spec is None
+                ):
+                    raise ValueError("not restart-recoverable")
+                if task.status != TaskStatus.NEEDS_REVIEW:
+                    raise ValueError("not awaiting recovery")
+                running = task.model_copy(
+                    update={"status": TaskStatus.RUNNING, "goal": loop_spec.goal}
+                )
+                for approval in self.list_pending_approvals(task_id):
+                    self._write_approval(
+                        approval.model_copy(update={"status": "rejected", "actor": "recovery"})
+                    )
+                self._write_task(running)
+                self._write_recovery(
+                    task_id,
+                    recovery.model_copy(update={"required": False}),
+                )
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+        return running, loop_spec
+
+    def compensate_recovery_claim(self, task_id: str) -> Task:
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                task = self.get_task(task_id)
+                recovery = self.get_recovery(task_id)
+                if task is None or recovery is None:
+                    raise ValueError("recovery claim is missing")
+                needs_review = task.model_copy(update={"status": TaskStatus.NEEDS_REVIEW})
+                self._write_task(needs_review)
+                self._write_recovery(
+                    task_id,
+                    recovery.model_copy(update={"required": True}),
+                )
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+        return needs_review
+
+    def isolate_interrupted_tasks(self) -> list[Task]:
+        with self._lock:
+            self.connection.execute("BEGIN IMMEDIATE")
+            rows = self.connection.execute("SELECT data FROM tasks ORDER BY rowid").fetchall()
+            isolated: list[Task] = []
+            recovery_reason = "服务重启后需人工复核"
+            for (data,) in rows:
+                task = Task.model_validate_json(data)
+                if task.status not in {
+                    TaskStatus.PENDING,
+                    TaskStatus.RUNNING,
+                    TaskStatus.WAITING_APPROVAL,
+                }:
+                    continue
+                updated = task.model_copy(update={"status": TaskStatus.NEEDS_REVIEW})
+                existing_recovery = self.get_recovery(task.id)
+                recovery = (
+                    existing_recovery.model_copy(
+                        update={"required": True, "reason": recovery_reason}
+                    )
+                    if existing_recovery is not None
+                    else TaskRecovery(required=True, reason=recovery_reason)
+                )
+                self._write_task(updated)
+                self._write_recovery(task.id, recovery)
+                self._append_event(task.id, "recovery_required", {"reason": recovery.reason})
+                isolated.append(updated)
+            self.connection.commit()
+        return isolated
 
     def events_after(self, task_id: str, sequence: int) -> list[Event]:
         with self._lock:

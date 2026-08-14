@@ -34,11 +34,17 @@ class RuntimeTaskApiClient(FakeTaskApiClient):
         *,
         events_for_after: dict[int, list[dict[str, object]]] | None = None,
         result_report: str | None = None,
+        recovery_required: bool = False,
+        recovery_reason: str | None = None,
+        resumable: bool = False,
     ) -> None:
         super().__init__()
         self.status = status
         self.events_for_after = events_for_after or {}
         self.result_report = result_report
+        self.recovery_required = recovery_required
+        self.recovery_reason = recovery_reason
+        self.resumable = resumable
         self.task_reads = 0
         self.event_afters: list[int] = []
         self.decisions: list[tuple[str, bool, str]] = []
@@ -60,6 +66,9 @@ class RuntimeTaskApiClient(FakeTaskApiClient):
             "status": self.status,
             "goal": "Ship the TUI",
             "pending_approvals": [],
+            "recovery_required": self.recovery_required,
+            "recovery_reason": self.recovery_reason,
+            "resumable": self.resumable,
         }
         if self.status == "waiting_approval":
             detail["pending_approvals"] = [
@@ -374,8 +383,37 @@ async def test_cancel_during_slow_poll_queues_single_refresh_before_next_interva
 
 
 @pytest.mark.asyncio
-async def test_cancelled_result_can_resume_and_refresh_immediately() -> None:
-    client = RuntimeTaskApiClient(status="cancelled")
+async def test_recovery_required_result_explains_restart_semantics() -> None:
+    client = RuntimeTaskApiClient(
+        status="needs_review",
+        recovery_required=True,
+        recovery_reason="服务重启后需人工复核",
+        resumable=True,
+    )
+    app = CodeAgentTui(client=client)
+
+    async with app.run_test() as pilot:
+        app.task_id = "task-1"
+        app.push_screen(RunScreen(id="run"))
+        await pilot.pause()
+
+        assert isinstance(app.screen, ResultScreen)
+        assert "服务重启后需人工复核" in str(
+            app.screen.query_one("#result-summary", Static).render()
+        )
+        assert "从头重新执行" in str(
+            app.screen.query_one("#recovery-hint", Static).render()
+        )
+
+
+@pytest.mark.asyncio
+async def test_restart_recovery_result_can_resume_and_refresh_immediately() -> None:
+    client = RuntimeTaskApiClient(
+        status="needs_review",
+        recovery_required=True,
+        recovery_reason="服务重启后需人工复核",
+        resumable=True,
+    )
     app = CodeAgentTui(client=client)
 
     async with app.run_test() as pilot:
@@ -391,6 +429,24 @@ async def test_cancelled_result_can_resume_and_refresh_immediately() -> None:
         assert client.resume_calls == 1
         assert client.task_reads > reads_before_resume
         assert isinstance(app.screen, RunScreen)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_result_does_not_resume_without_restart_recovery() -> None:
+    client = RuntimeTaskApiClient(status="cancelled")
+    app = CodeAgentTui(client=client)
+
+    async with app.run_test() as pilot:
+        app.task_id = "task-1"
+        app.push_screen(RunScreen(id="run"))
+        await pilot.pause()
+        assert isinstance(app.screen, ResultScreen)
+
+        await pilot.press("r")
+        await pilot.pause()
+
+        assert client.resume_calls == 0
+        assert isinstance(app.screen, ResultScreen)
 
 
 @pytest.mark.asyncio
@@ -474,8 +530,13 @@ async def test_run_action_error_only_notifies_and_keeps_screen(
 
 
 @pytest.mark.asyncio
-async def test_resume_error_only_notifies_and_keeps_cancelled_result() -> None:
-    client = RuntimeTaskApiClient(status="cancelled")
+async def test_resume_error_only_notifies_and_keeps_restart_recovery_result() -> None:
+    client = RuntimeTaskApiClient(
+        status="needs_review",
+        recovery_required=True,
+        recovery_reason="服务重启后需人工复核",
+        resumable=True,
+    )
     client.fail_resume = True
     app = CodeAgentTui(client=client)
     notifications: list[str] = []

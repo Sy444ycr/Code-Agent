@@ -37,7 +37,7 @@ export default function App({ initialTaskId }: AppProps) {
       <h1>Code-Agent Task Console</h1>
       <TaskForm onCreated={(created) => { setTask(created); setTaskId(created.id); }} />
       {error && <p role="alert">{error}</p>}
-      {task && <><TaskSummary task={task} onCancel={() => refresh(() => cancelTask(task.id))} onResume={() => refresh(() => resumeTask(task.id))} /><ApprovalPanel approvals={task.pending_approvals} onDecision={async (id, approved, scope) => { await decideApproval(id, approved, scope); setTask(await getTask(task.id)); }} /><Timeline connection={connection} events={events} /></>}
+      {task && <><TaskSummary task={task} canResume={task.resumable === true} onCancel={() => refresh(() => cancelTask(task.id))} onResume={() => refresh(() => resumeTask(task.id))} /><ApprovalPanel approvals={task.pending_approvals} onDecision={async (id, approved, scope) => { await decideApproval(id, approved, scope); setTask(await getTask(task.id)); }} /><Timeline connection={connection} events={events} /></>}
       {!task && <section aria-label="timeline">No active task</section>}
     </main>
   );
