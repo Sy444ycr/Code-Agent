@@ -10,6 +10,8 @@
 
 ## Writing-plans 记录
 
+2026-08-14 用户审阅并确认 Task 26 ECS 部署设计后，使用 `superpowers:writing-plans` 生成 `docs/superpowers/plans/2026-08-14-task-26-ecs-deployment.md`。计划拆分为四个独立评审门：Docker/Compose 静态契约、受显式开关保护的容器运行与 SQLite 持久化验收、GitLab `unit-test` job、Ubuntu ECS 部署清单与课程文档收尾。计划明确 Docker daemon 缺失只能产生 skipped/环境限制记录，不可表述为运行时验收通过；ECS 重装、安全组调整、域名和备案仍由用户手动完成。
+
 2026-08-13 按已确认的 Task 23 设计与实施计划执行：在隔离 worktree 中完成 ProviderFactory、API artifact、CLI 生命周期命令、TUI/WebUI Provider 贯通、`code-agent web` 静态资源托管和四类离线规格演示。每个子项目均先运行红灯测试，再实现最小代码并运行绿灯测试；最终证据见 `AGENT_LOG.md`。
 
 2026-07-11 使用 `superpowers:writing-plans` 将已确认的 `SPEC.md` 拆分为 17 个可执行任务，正式计划保存到 `PLAN.md` 与 `docs/superpowers/plans/2026-07-11-code-agent.md`。计划按 TDD 顺序组织：项目骨架、核心模型、治理策略、workspace 工具、Shell 与语言适配、反馈、LLM Provider、记忆与上下文、Hook、主循环、SubAgent、SQLite、API、CLI/TUI/WebUI、CI 与机制演示。
