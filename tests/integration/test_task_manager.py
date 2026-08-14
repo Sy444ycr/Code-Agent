@@ -319,7 +319,7 @@ def test_recovery_rejects_stale_approval_and_accepts_new_approval(tmp_path) -> N
         recovered_manager.shutdown()
 
 
-def test_recover_submit_failure_restores_review_state_without_runtime(
+def test_recover_submit_failure_never_exposes_start_event_and_retry_preserves_cursor(
     tmp_path, monkeypatch
 ) -> None:
     store = SQLiteStore(tmp_path / "state.db")
@@ -329,10 +329,21 @@ def test_recover_submit_failure_restores_review_state_without_runtime(
     )
     recovery = TaskRecovery(required=True, reason="service restart requires review")
     store.save_recovery(task.id, recovery)
+    stale_approval = store.save_approval(
+        Approval(task_id=task.id, tool_call_id="stale-tool", reason="stale approval")
+    )
+    last_visible = store.append_event(
+        task.id, "recovery_required", {"reason": recovery.reason}
+    )
     manager = TaskManager(store)
+    original_submit = manager.executor.submit
+    visible_during_submit_failure = []
 
     def fail_submit(*args, **kwargs):
         del args, kwargs
+        visible_during_submit_failure.extend(
+            store.events_after(task.id, last_visible.sequence)
+        )
         raise RuntimeError("injected submit failure")
 
     monkeypatch.setattr(manager.executor, "submit", fail_submit)
@@ -348,9 +359,29 @@ def test_recover_submit_failure_restores_review_state_without_runtime(
         assert store.get_task(task.id).status == TaskStatus.NEEDS_REVIEW
         assert store.get_recovery(task.id) == recovery
         assert task.id not in manager._runtimes
-        assert all(
-            event.type != "recovery_started" for event in store.events_after(task.id, 0)
+        assert visible_during_submit_failure == []
+        assert store.events_after(task.id, last_visible.sequence) == []
+        rejected = store.get_approval(stale_approval.id)
+        assert rejected is not None
+        assert rejected.status == "rejected"
+        assert rejected.actor == "recovery"
+
+        monkeypatch.setattr(manager.executor, "submit", original_submit)
+        manager.recover(
+            task.id,
+            MockLLMProvider([
+                AgentDecision(action="complete", completion_message="done")
+            ]),
         )
+        wait_for_task_completed(store, task.id)
+
+        resumed_events = store.events_after(task.id, last_visible.sequence)
+        assert resumed_events[0].type == "recovery_started"
+        assert resumed_events[0].sequence == last_visible.sequence + 1
+        assert [event.sequence for event in resumed_events] == list(
+            range(last_visible.sequence + 1, resumed_events[-1].sequence + 1)
+        )
+        assert resumed_events[-1].type == "task_completed"
     finally:
         manager.shutdown()
 

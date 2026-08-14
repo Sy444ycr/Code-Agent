@@ -1,15 +1,18 @@
 import json
 import time
+from threading import Event
 
 import pytest
 from fastapi.testclient import TestClient
 
 import code_agent.api.app as api_app
 from code_agent.api.app import create_app
+from code_agent.core.llm import MockLLMProvider
 from code_agent.core.models import (
     AgentDecision,
     Approval,
     LoopSpec,
+    PermissionMode,
     Task,
     TaskRecovery,
     TaskStatus,
@@ -252,6 +255,68 @@ def test_events_stream_replays_terminal_completion_before_closing(tmp_path) -> N
 
         assert [event["event"] for event in events] == ["feedback", "task_completed"]
         assert events[-1]["data"]["payload"]["status"] == "succeeded"
+
+
+def test_events_stream_waits_for_active_runtime_needs_review_completion(
+    tmp_path, monkeypatch
+) -> None:
+    app = create_app(state_path=tmp_path / "state.db")
+    completion_append_entered = Event()
+    allow_completion_append = Event()
+    original_append_event = app.state.store.append_event
+
+    def block_completion_append(task_id: str, event_type: str, payload: dict[str, object]):
+        if event_type == "task_completed":
+            completion_append_entered.set()
+            assert allow_completion_append.wait(timeout=2)
+        return original_append_event(task_id, event_type, payload)
+
+    monkeypatch.setattr(app.state.store, "append_event", block_completion_append)
+    with TestClient(app) as client:
+        task = Task(
+            workspace=str(tmp_path),
+            goal="deny shell",
+            mode=PermissionMode.PLAN,
+            provider="mock",
+        )
+        client.app.state.manager.submit(
+            task,
+            LoopSpec(goal=task.goal),
+            MockLLMProvider([
+                AgentDecision(
+                    action="tool_call",
+                    tool_action=ToolAction(
+                        tool="shell", arguments={"command": 'python -c "pass"'}
+                    ),
+                )
+            ]),
+        )
+        assert completion_append_entered.wait(timeout=2)
+        assert client.app.state.store.get_task(task.id).status == TaskStatus.NEEDS_REVIEW
+        assert task.id in client.app.state.manager._runtimes
+
+        original_wait_for_event = client.app.state.manager.wait_for_event
+        waited_for_active_runtime = False
+
+        def release_completion_on_wait(task_id: str, after: int, timeout: float) -> None:
+            nonlocal waited_for_active_runtime
+            waited_for_active_runtime = True
+            allow_completion_append.set()
+            original_wait_for_event(task_id, after, timeout)
+
+        monkeypatch.setattr(
+            client.app.state.manager, "wait_for_event", release_completion_on_wait
+        )
+        try:
+            events = read_sse_events(
+                client, f"/api/tasks/{task.id}/events/stream?after=0"
+            )
+        finally:
+            allow_completion_append.set()
+
+        assert waited_for_active_runtime
+        assert events[-1]["event"] == "task_completed"
+        assert events[-1]["data"]["payload"]["status"] == "needs_review"
 
 
 def test_cancel_waiting_approval_task_returns_cancelled(tmp_path) -> None:

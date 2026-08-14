@@ -193,8 +193,6 @@ def create_app(
                     if not terminal_recheck_pending:
                         terminal_recheck_pending = True
                         continue
-                    if task.status == TaskStatus.NEEDS_REVIEW:
-                        return
                     try:
                         app.state.manager.wait_for_event(task_id, cursor, timeout=0.5)
                     except KeyError:

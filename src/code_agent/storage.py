@@ -175,7 +175,7 @@ class SQLiteStore:
             self.connection.commit()
         return event
 
-    def claim_recovery(self, task_id: str, reason: str) -> tuple[Task, LoopSpec, int]:
+    def claim_recovery(self, task_id: str) -> tuple[Task, LoopSpec]:
         with self._lock:
             try:
                 self.connection.execute("BEGIN IMMEDIATE")
@@ -203,16 +203,13 @@ class SQLiteStore:
                     task_id,
                     recovery.model_copy(update={"required": False}),
                 )
-                recovery_started = self._append_event(
-                    task_id, "recovery_started", {"reason": reason}
-                )
                 self.connection.commit()
             except Exception:
                 self.connection.rollback()
                 raise
-        return running, loop_spec, recovery_started.sequence
+        return running, loop_spec
 
-    def compensate_recovery_claim(self, task_id: str, recovery_started_sequence: int) -> Task:
+    def compensate_recovery_claim(self, task_id: str) -> Task:
         with self._lock:
             try:
                 self.connection.execute("BEGIN IMMEDIATE")
@@ -226,13 +223,6 @@ class SQLiteStore:
                     task_id,
                     recovery.model_copy(update={"required": True}),
                 )
-                deleted = self.connection.execute(
-                    "DELETE FROM events WHERE task_id = ? AND sequence = ? "
-                    "AND type = 'recovery_started'",
-                    (task_id, recovery_started_sequence),
-                )
-                if deleted.rowcount != 1:
-                    raise ValueError("recovery start event is missing")
                 self.connection.commit()
             except Exception:
                 self.connection.rollback()

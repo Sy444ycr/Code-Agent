@@ -32,16 +32,17 @@
 
 ### C. recovery submit 失败补偿
 
-- recovery claim 返回本次 `recovery_started` 的 sequence。
-- `_start_runtime` 在 `executor.submit` 抛错时移除刚注册的 runtime。
-- `recover` 调用 storage 补偿事务：任务恢复为 `needs_review`，`recovery.required=True`，并精确删除本次伪 `recovery_started`。
-- 测试直接注入 `executor.submit` 失败，验证没有 orphan runtime 或伪恢复事件。
+- `claim_recovery` 的 `BEGIN IMMEDIATE` 事务只原子 claim task/recovery 并拒绝旧 pending approvals，不再预写 `recovery_started`。
+- `_start_runtime` 先向 executor 提交一个受启动门闩控制的 worker；提交成功后才追加 `recovery_started`，事件提交完成后再放行 worker，保证恢复事件早于 runtime 事件。
+- `executor.submit` 失败时移除刚注册的 runtime；storage 补偿事务只恢复 `needs_review + recovery.required=True`，不删除事件、不复用 sequence，旧 approvals 保持 `rejected`。
+- 确定性测试在注入的 submit 失败函数内部和失败返回后读取事件历史，均确认没有 `recovery_started`；随后成功重试确认 sequence 连续，客户端从失败前游标可收到 `recovery_started` 与 `task_completed`。
 
 ### D. SSE 完成游标立即关闭
 
 - 当任务已终态、当前增量为空时，SSE 回查持久化的 `task_completed`。
 - 若完成事件 sequence 已不大于 cursor（包括 `after == task_completed.sequence`），流立即关闭，不再调用事件等待。
-- 原有“终态 status 先落库、`task_completed` 稍后可读”的 staged 补回看测试继续保留并通过。
+- 若真实活动 runtime 已进入 `needs_review` 但尚未追加 `task_completed`，SSE 通过 `wait_for_event` 做有限等待并继续回放；只有 runtime 不存在、`wait_for_event` 抛出 `KeyError` 时才立即关闭。
+- 确定性测试使用真实 worker，并将其阻塞在 `task_completed` 追加前；原有无 runtime `needs_review`、完成游标立即关闭和终态补回看测试继续保留并通过。
 
 ### E. 时序测试与文档统一
 
@@ -53,8 +54,8 @@
 
 - A 红灯：真实审批等待 worker 的 shutdown 线程在 0.5 秒后仍存活，`assert shutdown_returned` 失败；修复后通过，并确认重启隔离为 `needs_review`。
 - B 红灯：恢复 claim 后旧 approval 实际仍为 `pending`，期望 `rejected` 的断言失败；原子失效后通过。
-- C 红灯：注入 submit 失败后任务实际遗留为 `running`，期望 `needs_review` 的断言失败；补偿后通过。
-- D 红灯：`after` 等于完成 sequence 时仍调用 `wait_for_event`，fail-fast 测试抛出 `completed cursor must not wait for another event`；回查完成事件后通过。
+- C 新红灯：注入的 submit 失败函数内部实际读到 sequence 2 的伪 `recovery_started`；事件延后至提交成功并使用启动门闩后，失败窗口与失败后历史均无伪事件，成功重试的 sequence 和游标回放通过。
+- D 新红灯：真实活动 runtime 已持久化 `needs_review`、但被阻塞在 `task_completed` 追加前时，SSE 未调用 `wait_for_event` 就关闭；改为按 runtime 存在性判断后通过。
 - A–D 每项均先运行单测确认预期失败，再写最小实现并运行同一测试确认转绿。
 
 ## 最终验证
@@ -63,10 +64,10 @@
 
 - 目标集成测试：
   - `python -m pytest tests/integration/test_task_manager.py tests/integration/test_api_sse.py -q`
-  - `35 passed, 39 warnings`
+  - `36 passed, 41 warnings`
 - Python 全量：
   - `python -m pytest -q`
-  - `164 passed, 1 skipped, 43 warnings in 142.94s`
+  - `165 passed, 1 skipped, 45 warnings`
 - Ruff：
   - `ruff check .`
   - `All checks passed!`

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from threading import Condition, Event, RLock
@@ -69,14 +70,24 @@ class TaskManager:
         with self._lock:
             if task_id in self._runtimes:
                 raise ValueError(f"task {task_id} is already running")
-            running, loop_spec, recovery_started_sequence = self.store.claim_recovery(
-                task_id,
-                "用户确认从头重新执行",
-            )
+            running, loop_spec = self.store.claim_recovery(task_id)
+
+            def record_recovery_started() -> None:
+                self.store.append_event(
+                    task_id,
+                    "recovery_started",
+                    {"reason": "用户确认从头重新执行"},
+                )
+
             try:
-                self._start_runtime(running, loop_spec, provider)
+                self._start_runtime(
+                    running,
+                    loop_spec,
+                    provider,
+                    on_submitted=record_recovery_started,
+                )
             except Exception:
-                self.store.compensate_recovery_claim(task_id, recovery_started_sequence)
+                self.store.compensate_recovery_claim(task_id)
                 raise
         return running
 
@@ -151,14 +162,34 @@ class TaskManager:
             raise KeyError(task_id)
         return runtime
 
-    def _start_runtime(self, task: Task, loop_spec: LoopSpec, provider: LLMProvider) -> None:
+    def _start_runtime(
+        self,
+        task: Task,
+        loop_spec: LoopSpec,
+        provider: LLMProvider,
+        on_submitted: Callable[[], None] | None = None,
+    ) -> None:
         runtime = _Runtime(task=task, provider=provider)
         self._runtimes[task.id] = runtime
+        run_gate = Event()
+        start_aborted = Event()
+
+        def run_after_submit() -> TaskRunResult:
+            run_gate.wait()
+            if start_aborted.is_set():
+                return TaskRunResult(status=TaskStatus.NEEDS_REVIEW)
+            return self._run(runtime, loop_spec)
+
         try:
-            runtime.future = self.executor.submit(self._run, runtime, loop_spec)
+            runtime.future = self.executor.submit(run_after_submit)
+            if on_submitted is not None:
+                on_submitted()
         except Exception:
+            start_aborted.set()
+            run_gate.set()
             self._runtimes.pop(task.id, None)
             raise
+        run_gate.set()
 
     def _run(self, runtime: _Runtime, loop_spec: LoopSpec) -> TaskRunResult:
         task = runtime.task

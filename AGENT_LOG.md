@@ -5,11 +5,11 @@
 - 工作区与范围：全程在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery`、分支 `codex/task-25-restart-recovery` 工作，只修改用户允许的 TaskManager、storage、SSE、两组集成测试与指定中文过程文档；未修改 Web/TUI 源码。
 - A 红灯：真实 `submit` 出来的 worker 已处于 `waiting_approval` 且 future 未完成，shutdown 线程在 0.5 秒后仍存活，`assert shutdown_returned` 失败。绿灯：runtime 使用区别于 cancel 的 service-stop 信号；`shutdown()` set+notify 后审批 handler 非终态退出，下次 manager 启动将任务隔离为 `needs_review`。
 - B 红灯：恢复 claim 后旧 approval 仍为 `pending`。绿灯：`claim_recovery` 在同一个 `BEGIN IMMEDIATE` 事务内将旧 pending approvals 标为 `rejected`；旧 decision 返回冲突且记录不变，恢复 worker 生成的新 approval 可继续批准。
-- C 红灯：注入 `executor.submit` 失败后任务遗留为 `running`。绿灯：`_start_runtime` 清理 orphan runtime，storage 补偿事务恢复 `needs_review + recovery.required=True`，并精确删除本次伪 `recovery_started`。
-- D 红灯：`after == task_completed.sequence` 时 SSE 仍进入 `wait_for_event`。绿灯：终态增量为空时回查持久化完成事件，完成 sequence 不大于 cursor 即立即关闭；既有“终态先落库、完成事件后可读”的补回看测试继续通过。
-- E：将会读取/断言完成事件的时序测试统一改为等待 `task_completed`，不再只等待终态 status；根目录与 SDD 的 `task-5-report.md` 已统一，`SPEC_PROCESS.md` 同步记录。
-- 目标验证：`tests/integration/test_task_manager.py tests/integration/test_api_sse.py -q` 为 `35 passed, 39 warnings`。
-- 最终验证：Python 全量 `164 passed, 1 skipped, 43 warnings`；Ruff `All checks passed!`；Mypy `Success: no issues found in 33 source files`；Web 为 `2 files / 8 tests passed`；Web build 成功。警告仍是既有 FastAPI/Starlette 弃用提示与 Vite native config loader 迁移预警。
+- C 再复审红灯：注入的 `executor.submit` 失败函数内部读到已提交的 sequence 2 `recovery_started`，证明“失败后删除”仍允许伪事件对外可见并复用 sequence。绿灯：claim 事务不再写事件；`_start_runtime` 提交受门闩阻塞的 worker，提交成功后追加 `recovery_started` 再放行；submit 失败只恢复 `needs_review + required=True`，不删除事件，旧 approval 保持 `rejected`。失败窗口、失败后历史与成功重试游标/连续 sequence 均有确定性断言。
+- D 再复审红灯：真实活动 runtime 已写入 `needs_review`、worker 阻塞在 `task_completed` 追加前时，SSE 未调用 `wait_for_event` 就关闭。绿灯：去掉对 `needs_review` 的无条件提前关闭；活动 runtime 有限等待并回放完成事件，无 runtime 仍以 `KeyError` 立即关闭，`after == task_completed.sequence` 仍立即关闭。
+- E：随后读取/断言完成事件的时序测试继续显式等待 `task_completed`；根目录与 SDD 的 `task-5-report.md` 保持统一，`SPEC_PROCESS.md` 同步更正结论。
+- 目标验证：`tests/integration/test_task_manager.py tests/integration/test_api_sse.py -q` 为 `36 passed, 41 warnings`。
+- 最终验证：Python 全量为 `165 passed, 1 skipped, 45 warnings`；Ruff 为 `All checks passed!`；Mypy 为 `Success: no issues found in 33 source files`；Web 为 `2 files / 8 tests passed`；Web build 成功。警告仍是既有 FastAPI/Starlette 弃用提示与 Vite native config loader 迁移预警。
 
 ## 2026-08-13 — Task 25 / Task 5 final fix wave
 
