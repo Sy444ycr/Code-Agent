@@ -1,327 +1,231 @@
 # Code-Agent
 
-当前实现包含核心循环、治理策略、workspace 工具、反馈、Mock LLM、记忆、Hook、SubAgent、SQLite、FastAPI、CLI、TUI 和 WebUI 最小可运行骨架。开发验证使用 Mock LLM，不依赖真实 API Key。
+Code-Agent 是 AI4SE 期末项目 A：Coding Agent Harness 的可运行实现。它提供一个受治理的任务循环：任务由 Provider 给出结构化决策，系统在 workspace 边界、权限策略和人工审批约束下执行工具调用，并将任务状态、审批记录和事件持久化到 SQLite。
 
-Code-Agent 是一个面向本地代码仓库的通用编码助手，也是 AI4SE 期末项目 A：Coding Agent Harness。
+项目包含 Python 后端、FastAPI REST/SSE API、CLI、Textual TUI、React WebUI、Docker Compose 与 GitLab CI。默认使用离线、可重复的 Mock Provider；不需要真实 API Key 即可演示任务生命周期与安全门控。
 
-用户可以用自然语言描述需求，由 Agent 在指定 workspace 中理解项目、修改代码、执行命令、运行验证，并根据测试、Lint、类型检查和构建反馈持续调整。项目不依赖现成的高层 Agent Runner，核心主循环、工具分发、治理、反馈、记忆与 SubAgent 调度均由本仓库自行实现。
+## 当前交付能力
 
-> 当前仓库已包含可离线验证的 Python、WebUI、Docker Compose 和 GitLab CI 交付链。真实 ECS 部署仍需用户手动准备 Ubuntu、Docker 和安全组；本文不代表已替用户完成云端部署。完整设计见 [SPEC.md](SPEC.md)。
+- 任务状态机：创建、运行、等待审批、完成、待复核、取消与安全恢复。
+- 受 workspace 边界保护的文件、搜索、目录、Git diff、Shell 与检查工具。
+- 三种权限模式：`plan`、`supervised`、`auto`。
+- 人工审批：允许一次、允许本任务同类风险、拒绝。
+- 任务事件通过 SSE 推送到 WebUI Timeline，并持久化到 SQLite。
+- Mock Provider 的确定性演示，以及 OpenAI-compatible Provider 的受控配置入口。
+- Docker Compose 单容器部署；WebUI 通过主机 TCP 80 提供服务，SQLite 位于命名卷 `code-agent-state`。
 
-## Docker Compose 部署
+## 快速启动
 
-项目提供单服务 Docker Compose 部署配置，构建 WebUI 后以非 root 用户运行 `code-agent web`，主机只发布 TCP 80，SQLite 状态保存到命名卷 `code-agent-state`。详细的 Ubuntu 22.04 ECS 前置检查、启动、更新、回滚和清理步骤见 [deploy/ecs-ubuntu.md](deploy/ecs-ubuntu.md)。
+### 本地开发
 
-首轮部署默认使用 Mock Provider，并且仅建议通过 ECS 公网 IP/HTTP 做临时演示。服务不会在服务器上写入真实 API Key、私钥或账号凭据；域名、HTTPS、备份和真实云端 Provider 不属于本任务范围。
-
-## Task 23 使用示例
-
-安装当前项目后，可以使用统一的 Provider 与任务生命周期命令：
-
-```powershell
-code-agent status <task-id> --url http://127.0.0.1:8000 --json
-code-agent approve <approval-id> --url http://127.0.0.1:8000 --scope once --json
-code-agent reject <approval-id> --url http://127.0.0.1:8000 --json
-code-agent resume <task-id> --url http://127.0.0.1:8000 --json
-code-agent web --host 127.0.0.1 --port 8000
-```
-
-默认测试只使用离线 Mock Provider，不读取真实凭据，也不访问外网。真实 Provider 只接受配置文件中的非敏感 URL/模型和系统 keyring 中的凭据；客户端不会提交端点、模型或密钥。
-
-四类规格演示位于 `demos/task23_feature.py`、`task23_bugfix.py`、`task23_tests.py` 与 `task23_refactor.py`，均输出安全的结构化 JSON。
-
-## 项目定位
-
-Code-Agent 不是只处理示例 Bug 的修复工具，而是面向小到中等规模开发任务的完整编码助手。首版计划支持：
-
-- 根据自然语言需求实现功能。
-- 修复 Bug，并依据客观失败反馈迭代。
-- 阅读和解释代码、补充测试、执行小型重构。
-- 创建、修改和删除项目文件。
-- 执行 Shell、测试、Lint、类型检查和构建命令。
-- 通过 Shell 完成常见 Git 操作，并对高风险命令进行治理。
-- 使用 TUI、非交互 CLI 和 React WebUI 启动、观察和审批任务。
-- 通过受控 SubAgent 完成探索、实现、验证和评审。
-
-## 核心设计
-
-项目的主要贡献由两个互相配合的方向组成：
-
-1. **受治理的工程化反馈循环**：用代码实现 LoopSpec、Policy Engine、人工审批、Hook、验证器、恢复策略、预算和停止条件。
-2. **轻量结构化项目记忆与上下文工程**：按任务、路径和失败类型检索项目规则、历史决策与已验证经验，不使用重型向量 RAG。
-
-一次任务的主要流程为：
-
-```mermaid
-flowchart LR
-    A[提交需求] --> B[构建上下文]
-    B --> C[LLM 结构化决策]
-    C --> D[Hook 与治理检查]
-    D --> E[工具或 SubAgent 执行]
-    E --> F[解析客观反馈]
-    F --> G[更新状态与记忆]
-    G --> H{验收或停止?}
-    H -- 继续 --> B
-    H -- 结束 --> I[报告与证据]
-```
-
-LLM 可以提出下一步动作或声明任务完成，但不能自行判定成功。只有用户定义的验收命令或确定性检查通过，任务才能进入 `succeeded`；缺少客观验证时进入 `needs_review`。
-
-## Loop Engineering
-
-每个任务使用显式 `LoopSpec`，至少包含：
-
-- 任务目标与验收命令。
-- 最大轮次、运行时间和调用预算。
-- 失败恢复与重复失败策略。
-- 必须人工介入的节点。
-- 成功、待复核、阻塞、失败、预算耗尽和取消等终止状态。
-
-循环遵循“感知 → 决策 → 治理 → 执行 → 验证 → 反思 → 记录”，并将运行状态持久化到 SQLite，以支持中断恢复。
-
-## 权限模式
-
-所有动作执行前都必须经过代码实现的 Policy Engine。Prompt、Hook、LLM 和 Auto 模式均不能绕过硬性安全规则。
-
-| 动作 | Plan | Supervised（默认） | Auto |
-|---|---|---|---|
-| 读取、搜索、Git diff | 自动 | 自动 | 自动 |
-| 修改 workspace 文件 | 禁止 | 自动 | 自动 |
-| 已配置的测试与构建 | 禁止 | 自动 | 自动 |
-| 普通 Shell | 禁止 | 审批 | 自动 |
-| Agent 通用联网 | 禁止 | 审批 | 自动 |
-| 安装或升级依赖 | 禁止 | 审批 | 自动 |
-| 删除文件、Git commit | 禁止 | 审批 | 审批 |
-| 越界访问、读取凭据、破坏系统、强推 | 禁止 | 禁止 | 禁止 |
-
-审批支持“仅此次允许”和“本任务内允许同类动作”，授权不跨任务继承。TUI 与 WebUI 使用同一个审批状态机。
-
-## Hook
-
-首版提供以下生命周期 Hook：
-
-- `on_task_start`
-- `before_tool_call`
-- `after_tool_call`
-- `on_iteration_end`
-- `before_task_complete`
-- `on_task_end`
-
-内置 Hook 负责反馈解析、记忆、预算、检查点与报告；项目 Hook 通过 `.code-agent/hooks.yaml` 配置。Hook 可以增加限制、补充反馈或阻止完成，但不能批准被核心护栏拒绝的动作。
-
-## SubAgent
-
-Coordinator 可以派发四类受控 SubAgent：
-
-- **Explorer**：只读探索仓库、定位实现位置和依赖。
-- **Implementer**：完成范围明确的代码修改。
-- **Verifier**：运行测试与检查，提供独立验证证据。
-- **Reviewer**：检查 diff、需求覆盖和回归风险。
-
-只读子任务可以有限并行，同一 workspace 同时只能有一个写入者。首版最大嵌套深度为 1，子 Agent 不能继续创建子 Agent，其权限和预算也不能超过父任务。
-
-每个子 Agent 使用独立、最小充分的上下文。完整事件保存在 SQLite，父 Agent 默认只接收结构化 `SubTaskResult`，包括总结、发现、修改文件、验证证据、风险和未解决事项，而不是接收完整 transcript。
-
-## 语言与项目支持
-
-文件、搜索、补丁和 Shell 能力适用于任意文本代码仓库。首版为以下生态提供项目识别和验证命令适配：
-
-- Python
-- JavaScript / TypeScript
-- Java / Kotlin
-- Go
-- Rust
-- C / C++
-- C#
-- Ruby
-- PHP
-
-其他语言可以通过 `.code-agent/config.toml` 配置测试、Lint、类型检查和构建命令。首版不为每种语言实现 AST 重写器或 LSP 深度集成。
-
-## 交互界面
-
-### TUI
-
-运行 `code-agent` 后进入 Textual 终端界面，计划包含：
-
-- 启动页：workspace、项目生态、Provider、权限模式、Git 状态、任务输入和最近任务。
-- 运行页：按轮次展示决策、工具调用、Hook、SubAgent、反馈和预算。
-- 审批页：展示动作、风险原因、影响范围和允许/拒绝操作。
-- 结果页：展示最终状态、Git diff、验证证据和剩余事项。
-
-### WebUI
-
-React WebUI 定位为“控制台 + 观察台”，提供任务区、运行时间线和详情面板，不实现浏览器内代码编辑器。界面设计将使用 Open Design 的 Codex 工作流和仓库级 `DESIGN.md`，以紧凑、清晰的开发工具体验为目标。
-
-### 目标命令
-
-以下命令将在实现完成后提供：
-
-```text
-code-agent
-code-agent <workspace>
-code-agent run <workspace> "<需求>"
-code-agent status <task-id>
-code-agent approve <approval-id>
-code-agent reject <approval-id>
-code-agent resume <task-id>
-code-agent attach <url>
-code-agent web
-```
-
-## 系统架构
-
-Code-Agent 采用本地优先的模块化单体架构：
-
-- 后端：Python、FastAPI、Pydantic、SQLAlchemy、SQLite。
-- TUI：Textual + Rich。
-- WebUI：React、Vite、TypeScript。
-- 实时通信：REST + SSE。
-- LLM：可注入 Mock LLM 与 OpenAI-compatible Provider。
-- 测试：pytest、Vitest、React Testing Library、Playwright。
-
-TUI、非交互 CLI 和 WebUI 消费同一任务 API、事件模型和审批状态机。核心循环不依赖 FastAPI、Textual、React 或 SQLAlchemy 的具体实现，以便使用内存仓储、Mock LLM 和 Fake Tool 进行确定性测试。
-
-## 凭据与安全
-
-真实 API Key 不得硬编码、提交到 Git、写入日志、SQLite、Prompt、项目配置或 Shell history。
-
-首版使用 Python `keyring` 对接 Windows Credential Manager、macOS Keychain 和 Linux Secret Service，并提供安全录入、状态查看、更新和清除流程。环境变量与被 Git 忽略的 `.env` 仅作为开发回退，并会明确提示明文与进程可见风险。
-
-其他安全边界包括：
-
-- API 默认只监听 `127.0.0.1`。
-- 所有路径解析真实路径和符号链接后再检查 workspace 边界。
-- Tool Executor 启动子进程时移除 Provider 密钥环境变量。
-- 模型 Provider 的受控连接与 Agent 任意联网工具相互隔离。
-- Shell 具有超时、输出上限和进程清理。
-- `git reset --hard`、`git clean -fd` 和强制推送始终禁止。
-
-## 安装与运行
-
-项目当前尚未进入实现阶段，暂时没有可安装版本。
-
-首版计划以 Python 包分发，目标安装与启动方式为：
-
-```powershell
-pipx install code-agent
-code-agent
-code-agent web
-```
-
-`code-agent web` 计划默认提供 `http://127.0.0.1:8000`。最终发布前，README 将补充经过干净机器验证的安装步骤、系统依赖、钥匙串配置、公开 WebUI 地址和已知限制。
-
-### 发布打包
-
-发布前需要 Python 3.12、GNU Make（Windows 请先安装并加入 `PATH`），以及可用的 Node.js/npm（用于 `web/` 中锁定的前端依赖）。在已安装 Python 开发依赖的工作区运行：
+前提：Python 3.12、Node.js 22、npm 和 Docker（Docker 部署时需要）。
 
 ```powershell
 pip install -e ".[dev]"
-make package
+cd web
+npm ci
+npm run build
+cd ..
+python scripts/prepare_web_package.py
+code-agent web --host 127.0.0.1 --port 8000
 ```
 
-`make package` 是唯一的本地发布入口，按以下顺序执行：安装前端依赖、运行 Vitest、构建 Vite 产物、暂存 `web/dist` 到 Python 包、构建分发工件，并在临时虚拟环境中安装 wheel 和启动 WebUI 验收。默认不运行真实 Provider E2E，不读取 keyring 或 Provider 凭据。
+浏览器访问 `http://127.0.0.1:8000/`。
 
-### 配置 OpenAI-compatible Provider
+### Docker Compose
 
-Provider 档案只保存非敏感的服务地址和模型名称。可以在项目的
-`.code-agent/config.toml` 中配置：
-
-```toml
-[providers.openai]
-base_url = "https://api.openai.com/v1"
-model = "gpt-5"
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100 code-agent
 ```
 
-密钥应通过交互命令保存到系统钥匙串，不要写入 TOML、命令参数或仓库文件：
+服务监听主机的 TCP 80；浏览器访问 `http://<服务器地址>/`。停止服务但保留任务数据：
+
+```bash
+docker compose down
+```
+
+`docker compose down -v` 会删除 `code-agent-state` 卷及其中的 SQLite 任务记录，执行前应先决定是否需要保留数据。
+
+Ubuntu 22.04 ECS 的完整前置检查、更新、回滚和清理步骤见 [deploy/ecs-ubuntu.md](deploy/ecs-ubuntu.md)。首次演示只需开放 TCP 80；SSH TCP 22 应仅允许可信公网 IP，Ubuntu 实例不应保留公网 RDP 3389 规则。
+
+## WebUI 使用与答辩演示
+
+WebUI 是“任务控制台 + 观察台”，不是浏览器内的代码编辑器。默认部署的 Provider 为 `mock`：它不会调用真实大模型，而是按 **Mock decisions** 中的 JSON 决策逐步执行。这种方式适合稳定演示任务、策略、审批和 Timeline。
+
+### 表单字段
+
+| 字段 | 用途 |
+|---|---|
+| Workspace | Agent 可操作的工作目录。容器演示中填 `.`，它对应容器内 `/app`，不会访问访问者电脑中的文件。 |
+| Goal | 任务目标与演示说明，不能为空。 |
+| Mode | 权限模式：`plan`、`supervised` 或 `auto`。 |
+| Provider | 课程演示请选择 `mock`。`openai` 需要服务器中已有 Provider 档案和系统 keyring 凭据，默认部署未配置。 |
+| Mock decisions | JSON 数组，按顺序指定 Mock Agent 的每一步决策。填 `[]` 没有任何决策，任务会失败。 |
+
+### 推荐演示脚本
+
+每次填写清晰的 Goal，例如“演示监督模式的人工审批”，然后将以下任一 JSON 粘贴到 **Mock decisions** 并点击 **Start Task**。
+
+#### 1. 最小成功任务
+
+Mode 选择 `supervised`：
+
+```json
+[
+  {
+    "action": "complete",
+    "completion_message": "任务已完成：Agent 生命周期正常结束。"
+  }
+]
+```
+
+预期：右侧任务状态为 `succeeded`，Timeline 出现任务开始与完成事件。
+
+#### 2. Plan 模式的只读操作
+
+Mode 选择 `plan`：
+
+```json
+[
+  {
+    "action": "tool_call",
+    "tool_action": {
+      "tool": "list_dir",
+      "arguments": {"path": "."}
+    }
+  },
+  {
+    "action": "complete",
+    "completion_message": "只读检查完成。"
+  }
+]
+```
+
+预期：只读目录操作自动执行并反馈，随后任务完成。
+
+#### 3. Supervised 模式的人工审批
+
+Mode 选择 `supervised`：
+
+```json
+[
+  {
+    "action": "tool_call",
+    "rationale": "执行无害状态检查",
+    "tool_action": {
+      "tool": "shell",
+      "arguments": {"command": "echo supervised-demo"}
+    }
+  },
+  {
+    "action": "complete",
+    "completion_message": "审批后的命令执行完成。"
+  }
+]
+```
+
+预期：任务进入 `waiting_approval`，页面下方出现 **Allow once**、**Allow for task**、**Reject**。点击 **Allow once** 后，Shell 命令执行，Timeline 显示审批决定和完成事件；点击 **Reject** 则任务进入 `needs_review`，展示人工否决。
+
+#### 4. Auto 模式的自动执行
+
+Mode 选择 `auto`：
+
+```json
+[
+  {
+    "action": "tool_call",
+    "tool_action": {
+      "tool": "shell",
+      "arguments": {"command": "echo auto-demo"}
+    }
+  },
+  {
+    "action": "complete",
+    "completion_message": "自动模式执行完成。"
+  }
+]
+```
+
+预期：普通 Shell 操作无需人工审批即可执行。删除文件和 Git 写入仍属于高风险操作，即使在 `auto` 模式也会请求审批。
+
+#### 5. Plan 模式拒绝执行
+
+Mode 选择 `plan`：
+
+```json
+[
+  {
+    "action": "tool_call",
+    "tool_action": {
+      "tool": "shell",
+      "arguments": {"command": "echo should-not-run"}
+    }
+  }
+]
+```
+
+预期：策略阻止 Shell，任务进入 `needs_review`。这可用于说明“计划模式只允许读取，不允许执行或修改”。
+
+### 权限策略摘要
+
+| 动作类别 | Plan | Supervised | Auto |
+|---|---|---|---|
+| 读取、搜索、Git diff | 自动允许 | 自动允许 | 自动允许 |
+| 写入 workspace 文件、运行检查 | 拒绝 | 自动允许 | 自动允许 |
+| 普通 Shell | 拒绝 | 请求审批 | 自动允许 |
+| 删除文件、Git 写入 | 拒绝 | 请求审批 | 请求审批 |
+| `git reset --hard`、强制推送、越界路径等硬性禁止项 | 拒绝 | 拒绝 | 拒绝 |
+
+审批仅对当前任务生效；“Allow once”只允许一次，“Allow for task”允许该任务中同类风险，且授权不会继承到其他任务。
+
+当前 Tool Executor 已实现文件、目录、搜索、Git diff、Shell 和检查工具。联网与安装依赖保留了策略风险分类，但尚未提供通用执行器，因此不应作为已可运行的 WebUI 演示能力。
+
+## ECS 演示部署说明
+
+课程演示推荐 Ubuntu 22.04、Docker Engine、Docker Compose 和 Mock Provider。服务默认不保存真实 API Key、私钥或账号凭据；请勿将密钥写入仓库、命令历史、容器环境变量或页面表单。
+
+部分网络环境下，Docker Hub 或镜像加速器可能无法获取 `node:22-bookworm`、`python:3.12-bookworm` 等基础镜像。若 ECS 上 `docker compose up -d --build` 因基础镜像元数据失败，可在一台能正常构建的本机执行：
 
 ```powershell
-code-agent auth set openai
-code-agent run . "实现目标" --provider openai
+docker compose build
+docker tag <本机Compose镜像名>:latest code-agent-code-agent:latest
+docker save code-agent-code-agent:latest | ssh -i "<私钥路径>" ecs-user@<ECS地址> docker load
 ```
 
-默认 Provider 仍为 `mock`；Mock 运行必须显式提供 `--mock-decisions` 场景文件。
+然后在 ECS 的项目目录启动已导入镜像：
 
-环境变量和被 Git 忽略的 `.env` 仅是开发回退：调用方必须显式允许该回退；其中的值是明文，并且可能被同一进程或其诊断环境看到。生产和日常使用应优先通过 `code-agent auth set <name>` 保存密钥到系统 keyring。`.env.example` 不含真实密钥。
+```bash
+docker compose up -d --no-build
+docker compose ps
+docker compose logs --tail=100 code-agent
+```
 
-### 可选真实 Provider E2E
+确认 `docker compose ps` 显示 `healthy` 后，从浏览器访问 `http://<ECS公网IP>/`。这是一条用于课程演示的 IP/HTTP 路径；本项目未将域名、HTTPS、多用户访问控制、备份或长期公网运营作为本次交付范围。
 
-默认测试和 CI 均离线运行，真实 Provider E2E 默认跳过，不会读取 keyring 或发送 HTTP 请求。只有在需要人工验证已配置的 Provider 时，才设置下面两个非敏感环境变量：
+## Provider 与安全边界
+
+Mock Provider 是默认且推荐的演示 Provider。若要使用 OpenAI-compatible Provider，需在实际 workspace 的 `.code-agent/config.toml` 中保存非敏感地址与模型，并用 `code-agent auth set <provider>` 将密钥写入系统 keyring；不要把密钥放入配置文件、Git 或 WebUI。
+
+工具执行时会解析真实路径并检查 workspace 边界；Shell 环境会移除 Provider 密钥变量，并受超时和输出上限约束。需要注意：当前 Docker 演示容器没有挂载开发者的真实代码仓库，因此它展示的是受控任务流程，不应被视为可直接修改宿主机项目的生产级远程编码服务。
+
+## 验证命令
 
 ```powershell
-$env:CODE_AGENT_RUN_PROVIDER_E2E = "1"
-$env:CODE_AGENT_PROVIDER_E2E_NAME = "openai"
-code-agent auth set openai
-python -m pytest tests/integration/test_provider_e2e.py -q
+$env:PYTHONPATH = "src"
+python -m pytest tests/unit -q
+cd web
+npm test -- --run
+npm run build
 ```
 
-`CODE_AGENT_PROVIDER_E2E_NAME` 只选择 Provider 档案，默认值是 `openai`，绝不能保存密钥。运行前须在项目或用户配置中创建对应的非敏感档案，并用 `auth set <name>` 写入凭据。启用后仅记录 Provider 名称、命令和结果，不记录密钥或响应正文。
+启用真实 Provider 或 Docker 端到端测试需要显式设置相应环境变量；默认测试和 CI 使用离线 Mock Provider，不会读取真实凭据或访问真实模型服务。
 
-## 测试策略
+## 仓库文档
 
-开发过程严格遵循 TDD。默认 CI 只使用 Mock LLM，不依赖网络或真实凭据。
-
-课程要求的确定性机制演示包括：
-
-1. 护栏拦截 workspace 越界或硬性禁止命令。
-2. 注入一次验证失败后，反馈使 Agent 改变下一轮动作并最终通过。
-3. 结构化记忆或 Hook 对循环产生可重复验证的影响。
-4. Coordinator 派发 SubAgent，父 Agent 只收到总结，且权限和预算正确继承。
-
-## 项目状态与开发流程
-
-当前已完成：
-
-- Git 仓库与远程仓库配置。
-- 中文文档规范。
-- Superpowers brainstorming。
-- 完整产品与系统规格。
-
-下一阶段是使用 `superpowers:writing-plans` 生成细粒度实施计划。在 `SPEC.md` 与 `PLAN.md` 通过冷启动验证前，不编写实现代码。
-
-开发工作流为：
-
-1. brainstorming 确认设计。
-2. writing-plans 拆分任务与验证步骤。
-3. 使用陌生 Agent 对 SPEC 与 PLAN 做冷启动验证。
-4. 使用 Git worktree 与 SubAgent 分任务实施。
-5. 每项功能严格执行红、绿、重构的 TDD 循环。
-6. 先检查规格合规性，再进行代码质量评审。
-7. 完成分发、CI、部署和反思。
-
-## 仓库结构
-
-```text
-.
-|-- README.md
-|-- SPEC.md
-|-- PLAN.md
-|-- SPEC_PROCESS.md
-|-- AGENTS.md
-|-- AGENT_LOG.md
-|-- REFLECTION.md
-|-- docs/
-|   `-- superpowers/
-|       `-- specs/
-|-- .env.example
-|-- .gitignore
-|-- AI4SE_Final_Project_A_Coding_Agent_Harness.md
-`-- AI4SE_通用要求.md
-```
-
-## 项目文档
-
-- [SPEC.md](SPEC.md)：产品、架构、安全、机制和验收规格。
-- [PLAN.md](PLAN.md)：细粒度实施计划与当前任务状态。
-- [SPEC_PROCESS.md](SPEC_PROCESS.md)：规格与计划生成过程记录。
-- [AGENT_LOG.md](AGENT_LOG.md)：实现阶段的 Agent 协作与人工干预日志。
-- [REFLECTION.md](REFLECTION.md)：项目完成后的个人反思报告。
-- [brainstorming 设计记录](docs/superpowers/specs/2026-07-11-code-agent-design.md)：关键设计决策与取舍。
-
-## 已知限制
-
-- 当前只有设计与文档，尚无可运行实现。
-- 首版仅面向单机本地使用，不提供多用户云服务。
-- Shell 护栏不能等价于完整操作系统级沙箱；Docker 强隔离属于后续增强。
-- 主流语言具有内置验证适配器，其他语言依赖用户提供项目命令。
-- 首版不支持递归 SubAgent、多写 Agent 自动合并、自动 PR、自动部署和重型 RAG。
+- [SPEC.md](SPEC.md)：产品、架构、安全与验收规格。
+- [PLAN.md](PLAN.md)：任务拆分与当前执行状态。
+- [deploy/ecs-ubuntu.md](deploy/ecs-ubuntu.md)：Ubuntu ECS Docker Compose 部署清单。
+- [AGENT_LOG.md](AGENT_LOG.md)：实现过程与人工干预记录。
+- [REFLECTION.md](REFLECTION.md)：项目反思。
