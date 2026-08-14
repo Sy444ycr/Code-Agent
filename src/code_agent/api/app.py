@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -23,7 +24,10 @@ def create_app(
 ) -> FastAPI:
     del controller_factory
     app = FastAPI(title="Code-Agent")
-    app.state.store = store or SQLiteStore(state_path or Path(".code-agent/state.db"))
+    configured_state_path = state_path or Path(
+        os.environ.get("CODE_AGENT_STATE_PATH", ".code-agent/state.db")
+    )
+    app.state.store = store or SQLiteStore(configured_state_path)
     app.state.manager = TaskManager(app.state.store)
 
     @app.on_event("shutdown")
