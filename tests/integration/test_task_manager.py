@@ -27,6 +27,16 @@ def wait_until(predicate, timeout: float = 2.0) -> None:
     raise AssertionError("condition not reached")
 
 
+def wait_for_task_completed(store: SQLiteStore, task_id: str):
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        for event in reversed(store.events_after(task_id, 0)):
+            if event.type == "task_completed":
+                return event
+        time.sleep(0.01)
+    raise AssertionError("task_completed event was not persisted")
+
+
 def test_submit_uses_injected_provider(tmp_path) -> None:
     store = SQLiteStore(tmp_path / "state.db")
     manager = TaskManager(store)
@@ -51,8 +61,9 @@ def test_submit_runs_in_background_and_persists_terminal_status(tmp_path) -> Non
         spec,
         MockLLMProvider([AgentDecision(action="complete", completion_message="done")]),
     )
-    wait_until(lambda: store.get_task(task.id).status == TaskStatus.SUCCEEDED)
+    wait_for_task_completed(store, task.id)
 
+    assert store.get_task(task.id).status == TaskStatus.SUCCEEDED
     assert store.events_after(task.id, 0)[-1].type == "task_completed"
     manager.shutdown()
 
@@ -155,9 +166,9 @@ def test_background_failures_use_fixed_reports_without_persisting_exception_deta
     task = Task(workspace=str(tmp_path), goal="fail", mode=PermissionMode.PLAN)
 
     manager.submit(task, LoopSpec(goal="fail"), FailingProvider())
-    wait_until(lambda: store.get_task(task.id).status == TaskStatus.FAILED)
+    event = wait_for_task_completed(store, task.id)
 
-    event = store.events_after(task.id, 0)[-1]
+    assert store.get_task(task.id).status == TaskStatus.FAILED
     assert event.payload["report"] == safe_report
     assert "sentinel-secret" not in event.model_dump_json()
     assert b"sentinel-secret" not in (tmp_path / "state.db").read_bytes()
@@ -192,9 +203,10 @@ def test_recover_restarts_from_persisted_spec_and_clears_recovery(tmp_path) -> N
     provider = MockLLMProvider([AgentDecision(action="complete", completion_message="done")])
 
     running = manager.recover(task.id, provider)
-    wait_until(lambda: store.get_task(task.id).status == TaskStatus.SUCCEEDED)
+    wait_for_task_completed(store, task.id)
 
     assert running.status == TaskStatus.RUNNING
+    assert store.get_task(task.id).status == TaskStatus.SUCCEEDED
     assert store.get_recovery(task.id) == TaskRecovery(
         required=False, reason="服务重启后需人工复核"
     )
@@ -206,6 +218,141 @@ def test_recover_restarts_from_persisted_spec_and_clears_recovery(tmp_path) -> N
     assert "persisted-goal" in provider.contexts_seen[0]
     assert "stale" not in provider.contexts_seen[0]
     manager.shutdown()
+
+
+def test_shutdown_wakes_waiting_approval_worker_for_restart_isolation(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    manager = TaskManager(store)
+    task = Task(workspace=str(tmp_path), goal="shell")
+    manager.submit(
+        task,
+        LoopSpec(goal="shell"),
+        MockLLMProvider([
+            AgentDecision(
+                action="tool_call",
+                tool_action=ToolAction(
+                    tool="shell", arguments={"command": 'python -c "pass"'}
+                ),
+            ),
+        ]),
+    )
+    wait_until(lambda: store.get_task(task.id).status == TaskStatus.WAITING_APPROVAL)
+    assert store.list_pending_approvals(task.id)
+    assert manager._runtimes[task.id].future is not None
+    assert not manager._runtimes[task.id].future.done()
+
+    shutdown_thread = Thread(target=manager.shutdown, daemon=True)
+    shutdown_thread.start()
+    shutdown_thread.join(timeout=0.5)
+    shutdown_returned = not shutdown_thread.is_alive()
+    if not shutdown_returned:
+        manager.cancel(task.id)
+        shutdown_thread.join(timeout=2)
+
+    assert shutdown_returned
+    assert store.get_task(task.id).status == TaskStatus.WAITING_APPROVAL
+
+    restarted = TaskManager(store)
+    assert store.get_task(task.id).status == TaskStatus.NEEDS_REVIEW
+    assert store.get_recovery(task.id).required is True
+    restarted.shutdown()
+
+
+def test_recovery_rejects_stale_approval_and_accepts_new_approval(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    task = Task(workspace=str(tmp_path), goal="shell")
+    first_manager = TaskManager(store)
+    first_manager.submit(
+        task,
+        LoopSpec(goal="shell"),
+        MockLLMProvider([
+            AgentDecision(
+                action="tool_call",
+                tool_action=ToolAction(
+                    tool="shell", arguments={"command": 'python -c "pass"'}
+                ),
+            ),
+        ]),
+    )
+    wait_until(lambda: store.get_task(task.id).status == TaskStatus.WAITING_APPROVAL)
+    stale_approval = store.list_pending_approvals(task.id)[0]
+    first_manager.shutdown()
+
+    recovered_manager = TaskManager(store)
+    assert store.get_task(task.id).status == TaskStatus.NEEDS_REVIEW
+    recovered_manager.recover(
+        task.id,
+        MockLLMProvider([
+            AgentDecision(
+                action="tool_call",
+                tool_action=ToolAction(
+                    tool="shell", arguments={"command": 'python -c "pass"'}
+                ),
+            ),
+            AgentDecision(action="complete", completion_message="done"),
+        ]),
+    )
+    wait_until(lambda: store.get_task(task.id).status == TaskStatus.WAITING_APPROVAL)
+    new_approval = next(
+        approval
+        for approval in store.list_pending_approvals(task.id)
+        if approval.id != stale_approval.id
+    )
+
+    stale_after_claim = store.get_approval(stale_approval.id)
+    try:
+        assert stale_after_claim is not None
+        assert stale_after_claim.status == "rejected"
+        with pytest.raises(ValueError, match="already decided"):
+            recovered_manager.decide_approval(
+                stale_approval.id, approved=True, scope="once", actor="api"
+            )
+        assert store.get_approval(stale_approval.id) == stale_after_claim
+        assert store.list_pending_approvals(task.id) == [new_approval]
+
+        recovered_manager.decide_approval(
+            new_approval.id, approved=True, scope="once", actor="api"
+        )
+        wait_for_task_completed(store, task.id)
+        assert store.get_task(task.id).status == TaskStatus.SUCCEEDED
+    finally:
+        recovered_manager.shutdown()
+
+
+def test_recover_submit_failure_restores_review_state_without_runtime(
+    tmp_path, monkeypatch
+) -> None:
+    store = SQLiteStore(tmp_path / "state.db")
+    task = store.create_task(
+        Task(workspace=str(tmp_path), goal="recover", status=TaskStatus.NEEDS_REVIEW),
+        LoopSpec(goal="recover"),
+    )
+    recovery = TaskRecovery(required=True, reason="service restart requires review")
+    store.save_recovery(task.id, recovery)
+    manager = TaskManager(store)
+
+    def fail_submit(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("injected submit failure")
+
+    monkeypatch.setattr(manager.executor, "submit", fail_submit)
+    try:
+        with pytest.raises(RuntimeError, match="injected submit failure"):
+            manager.recover(
+                task.id,
+                MockLLMProvider([
+                    AgentDecision(action="complete", completion_message="done")
+                ]),
+            )
+
+        assert store.get_task(task.id).status == TaskStatus.NEEDS_REVIEW
+        assert store.get_recovery(task.id) == recovery
+        assert task.id not in manager._runtimes
+        assert all(
+            event.type != "recovery_started" for event in store.events_after(task.id, 0)
+        )
+    finally:
+        manager.shutdown()
 
 
 @pytest.mark.parametrize(
@@ -336,8 +483,9 @@ def test_concurrent_recover_claims_task_only_once_across_connections(tmp_path) -
 
     release.set()
     wait_until(lambda: provider.calls == 1)
-    wait_until(lambda: seed.get_task(task.id).status == TaskStatus.SUCCEEDED)
+    wait_for_task_completed(seed, task.id)
 
+    assert seed.get_task(task.id).status == TaskStatus.SUCCEEDED
     successes = [outcome for outcome in outcomes if isinstance(outcome, Task)]
     failures = [outcome for outcome in outcomes if isinstance(outcome, Exception)]
     assert len(successes) == 1

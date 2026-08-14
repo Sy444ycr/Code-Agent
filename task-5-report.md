@@ -1,118 +1,87 @@
-# Task 5 报告：端到端验收与中文过程记录
+# Task 25 / Task 5 最终修复报告
 
 ## 范围
 
-- 修改文件：
-  - `tests/integration/test_api_sse.py`
-  - `task-5-report.md`
-  - `AGENT_LOG.md`
-  - `SPEC_PROCESS.md`
-- 未扩展实现范围到 brief 之外的源码文件。
+本轮严格在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery` 工作，只修改用户允许的文件：
 
-## TDD 记录
+- `src/code_agent/application/task_manager.py`
+- `src/code_agent/storage.py`
+- `src/code_agent/api/app.py`
+- `tests/integration/test_task_manager.py`
+- `tests/integration/test_api_sse.py`
+- `AGENT_LOG.md`
+- `SPEC_PROCESS.md`
+- 两份 `task-5-report.md`
 
-### RED
+未修改 Web/TUI 源码。
 
-- 先新增端到端验收测试 `test_restart_recovery_stream_requires_manual_resume_and_preserves_order`。
-- 首次执行命令：
+## 最终审查修复
 
-```powershell
-$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_restart_recovery_stream_requires_manual_resume_and_preserves_order -q
-```
+### A. shutdown 不再被审批等待 worker 阻塞
 
-- 首次失败结果：
-  - 第一次失败是测试自身缺少 `Approval` 导入，报 `NameError: name 'Approval' is not defined`。
-  - 修正导入后再次执行，测试按预期进入真实行为验证；随后通过。
+- runtime 新增独立的服务停止信号，与用户 cancel 信号分离。
+- `shutdown()` 先通知所有 runtime；审批 handler 收到服务停止后退出 worker，但不写入取消或其他终态。
+- 下次创建 `TaskManager` 时，仍处于 `waiting_approval` 的任务会被启动隔离逻辑转换为 `needs_review`。
+- 集成测试通过真实 `submit` 运行到审批等待，确认 future 仍在运行，没有用手工数据库状态代替 worker。
 
-### GREEN
+### B. 恢复运行拒绝旧审批并生成新审批
 
-- 在 `tests/integration/test_api_sse.py` 中保留新的端到端验收测试，覆盖：
-  - 同一 `state.db` 中存在旧的运行未终态/待审批任务；
-  - 新 app 启动后自动隔离为 `needs_review`；
-  - 详情字段中保留旧 `goal`，同时 `loop_spec.goal` 为持久化规格；
-  - 旧 `pending_approval` 不会被自动执行；
-  - `resume` 后从头重新运行，并最终进入 `succeeded`；
-  - 事件序号严格递增；
-  - 事件序列包含 `recovery_required`、`recovery_started`、`task_completed`。
+- `claim_recovery` 在同一个 `BEGIN IMMEDIATE` 事务内，将该任务所有旧 pending approval 标记为 `rejected`，actor 为 `recovery`。
+- 恢复 worker 生成全新的 approval。
+- 对旧 approval 再提交 decision 会冲突，旧记录保持不变；新 approval 仍可批准并完成任务。
 
-- 目标测试命令：
+### C. recovery submit 失败补偿
 
-```powershell
-$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_restart_recovery_stream_requires_manual_resume_and_preserves_order -q
-```
+- recovery claim 返回本次 `recovery_started` 的 sequence。
+- `_start_runtime` 在 `executor.submit` 抛错时移除刚注册的 runtime。
+- `recover` 调用 storage 补偿事务：任务恢复为 `needs_review`，`recovery.required=True`，并精确删除本次伪 `recovery_started`。
+- 测试直接注入 `executor.submit` 失败，验证没有 orphan runtime 或伪恢复事件。
 
-- 结果：`1 passed, 5 warnings`。
+### D. SSE 完成游标立即关闭
 
-## 针对性测试
+- 当任务已终态、当前增量为空时，SSE 回查持久化的 `task_completed`。
+- 若完成事件 sequence 已不大于 cursor（包括 `after == task_completed.sequence`），流立即关闭，不再调用事件等待。
+- 原有“终态 status 先落库、`task_completed` 稍后可读”的 staged 补回看测试继续保留并通过。
 
-- 命令：
+### E. 时序测试与文档统一
 
-```powershell
-$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py -q
-```
+- 对随后读取或断言完成事件的集成测试，显式等待 `task_completed`，不再只等待终态 status。
+- 根目录与 SDD 目录的 `task-5-report.md` 内容统一为本报告。
+- `AGENT_LOG.md` 与 `SPEC_PROCESS.md` 同步记录本轮红绿证据与最终验证。
 
-- 结果：`14 passed, 31 warnings`。
+## TDD 红绿证据
+
+- A 红灯：真实审批等待 worker 的 shutdown 线程在 0.5 秒后仍存活，`assert shutdown_returned` 失败；修复后通过，并确认重启隔离为 `needs_review`。
+- B 红灯：恢复 claim 后旧 approval 实际仍为 `pending`，期望 `rejected` 的断言失败；原子失效后通过。
+- C 红灯：注入 submit 失败后任务实际遗留为 `running`，期望 `needs_review` 的断言失败；补偿后通过。
+- D 红灯：`after` 等于完成 sequence 时仍调用 `wait_for_event`，fail-fast 测试抛出 `completed cursor must not wait for another event`；回查完成事件后通过。
+- A–D 每项均先运行单测确认预期失败，再写最小实现并运行同一测试确认转绿。
 
 ## 最终验证
 
-按 brief 要求执行以下命令：
+所有命令均在指定 worktree 执行，并确保 Python 导入当前 worktree 的 `src`。
 
-### 1. Python 全量测试
+- 目标集成测试：
+  - `python -m pytest tests/integration/test_task_manager.py tests/integration/test_api_sse.py -q`
+  - `35 passed, 39 warnings`
+- Python 全量：
+  - `python -m pytest -q`
+  - `164 passed, 1 skipped, 43 warnings in 142.94s`
+- Ruff：
+  - `ruff check .`
+  - `All checks passed!`
+- Mypy：
+  - `mypy src`
+  - `Success: no issues found in 33 source files`
+- Web 测试：
+  - `npm.cmd test -- --run`
+  - `2 passed (files), 8 passed (tests)`
+- Web 构建：
+  - `npm.cmd run build`
+  - TypeScript 与 Vite 构建成功，`21 modules transformed`
 
-```powershell
-$env:PYTHONPATH="src"; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest -q
-```
+## Concerns
 
-- 结果：`158 passed, 1 skipped, 35 warnings in 136.28s`
-- warnings 构成：
-  - `fastapi.testclient` / `starlette.testclient` 的既有弃用警告；
-  - FastAPI `on_event` 的既有弃用警告；
-  - 均为仓库现存警告，本任务未新增新的 warning 类型。
-
-### 2. Ruff
-
-```powershell
-C:\Users\sy444\Desktop\Agents\.venv\Scripts\ruff.exe check .
-```
-
-- 结果：`All checks passed!`
-
-### 3. Mypy
-
-```powershell
-C:\Users\sy444\Desktop\Agents\.venv\Scripts\mypy.exe src
-```
-
-- 结果：`Success: no issues found in 33 source files`
-
-### 4. Web 测试
-
-```powershell
-npm.cmd test -- --run
-```
-
-- 结果：`2 passed (files), 8 passed (tests)`
-- 附带既有 Vite `configLoader: 'native'` 迁移预告，不影响退出状态。
-
-### 5. Web build
-
-```powershell
-npm.cmd run build
-```
-
-- 结果：构建通过，`✓ built in 307ms`
-- 附带既有 Vite `configLoader: 'native'` 迁移预告，不影响退出状态。
-
-## 恢复边界记录
-
-- 本次验收覆盖的是：
-  - 服务重启后对未终态任务的隔离；
-  - 人工确认后从头重新执行；
-  - 旧审批不自动执行；
-  - 恢复相关事件顺序与终态完成。
-
-- 本次未扩展覆盖的边界：
-  - 不自动重放旧审批动作；
-  - 不验证 checkpoint 恢复执行位置，本任务仅验证“从头重新执行”语义；
-  - 不触达真实 Provider E2E，仍只使用 Mock provider；
-  - 不在本任务内修复“隔离后、恢复前对无活动 runtime 直接拉取 SSE stream 会失败”的现有行为，该现象不属于本 brief 允许的源码修改范围，故仅作为 concern 保留。
+- Python 仍有仓库既有的 FastAPI `on_event` 与 Starlette TestClient/httpx 弃用警告；Web 仍有既有 Vite `configLoader: 'native'` 迁移预警，均未影响退出状态。
+- 当前环境未提供通用 subagent 调度工具，无法执行独立 reviewer；已按审查模板逐项检查需求、diff、错误路径、测试与范围。
+- 本轮没有扩展到 checkpoint 续跑、真实 Provider E2E 或 Web/TUI 行为。

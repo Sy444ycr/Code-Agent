@@ -27,6 +27,17 @@ def wait_for_status(client: TestClient, task_id: str, status: str) -> None:
     raise AssertionError(f"task did not reach {status}")
 
 
+def wait_for_task_completed(client: TestClient, task_id: str) -> dict[str, object]:
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        events = client.get(f"/api/tasks/{task_id}/events?after=0").json()["events"]
+        for event in reversed(events):
+            if event["type"] == "task_completed":
+                return event
+        time.sleep(0.01)
+    raise AssertionError("task_completed event was not persisted")
+
+
 def read_sse_events(client: TestClient, path: str) -> list[dict[str, object]]:
     with client.stream("GET", path) as response:
         body = response.read().decode()
@@ -151,7 +162,7 @@ def test_events_stream_replays_after_cursor_and_closes_at_terminal(tmp_path) -> 
                 ],
             },
         ).json()["id"]
-        wait_for_status(client, task_id, "succeeded")
+        wait_for_task_completed(client, task_id)
 
         with client.stream("GET", f"/api/tasks/{task_id}/events/stream?after=1") as response:
             body = response.read().decode()
@@ -159,6 +170,36 @@ def test_events_stream_replays_after_cursor_and_closes_at_terminal(tmp_path) -> 
         assert response.status_code == 200
         assert "id: 2" in body
         assert "event: task_completed" in body
+
+
+def test_events_stream_closes_when_cursor_is_task_completed_sequence(
+    tmp_path, monkeypatch
+) -> None:
+    app = create_app(state_path=tmp_path / "state.db")
+    with TestClient(app) as client:
+        task_id = client.post(
+            "/api/tasks",
+            json={
+                "workspace": str(tmp_path),
+                "goal": "complete",
+                "mock_decisions": [
+                    {"action": "complete", "completion_message": "done"}
+                ],
+            },
+        ).json()["id"]
+        completion = wait_for_task_completed(client, task_id)
+
+        def fail_wait(*args, **kwargs) -> None:
+            del args, kwargs
+            raise AssertionError("completed cursor must not wait for another event")
+
+        monkeypatch.setattr(client.app.state.manager, "wait_for_event", fail_wait)
+        events = read_sse_events(
+            client,
+            f"/api/tasks/{task_id}/events/stream?after={completion['sequence']}",
+        )
+
+        assert events == []
 
 
 def test_events_stream_replays_terminal_completion_before_closing(tmp_path) -> None:
@@ -346,7 +387,7 @@ def test_resume_rebuilds_mock_provider_after_startup_isolation(tmp_path) -> None
         assert detail.json()["resumable"] is True
 
         assert response.status_code == 200
-        wait_for_status(client, task.id, "succeeded")
+        wait_for_task_completed(client, task.id)
         events = client.get(f"/api/tasks/{task.id}/events?after=0").json()["events"]
         event_types = [event["type"] for event in events]
         assert event_types[0] == "recovery_required"
@@ -405,7 +446,7 @@ def test_restart_recovery_events_endpoint_requires_manual_resume_and_preserves_o
         resume = client.post(f"/api/tasks/{seeded_task.id}/resume")
 
         assert resume.status_code == 200
-        wait_for_status(client, seeded_task.id, "succeeded")
+        wait_for_task_completed(client, seeded_task.id)
 
         final_detail = client.get(f"/api/tasks/{seeded_task.id}")
         assert final_detail.status_code == 200
@@ -493,7 +534,7 @@ def test_restart_recovery_events_stream_replays_first_step_only_after_resume(tmp
         resume = client.post(f"/api/tasks/{seeded_task.id}/resume")
 
         assert resume.status_code == 200
-        wait_for_status(client, seeded_task.id, "succeeded")
+        wait_for_task_completed(client, seeded_task.id)
         resumed_events = read_sse_events(
             client,
             f"/api/tasks/{seeded_task.id}/events/stream?after={events_before_resume[-1]['id']}",

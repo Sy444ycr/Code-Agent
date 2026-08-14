@@ -175,7 +175,7 @@ class SQLiteStore:
             self.connection.commit()
         return event
 
-    def claim_recovery(self, task_id: str, reason: str) -> tuple[Task, LoopSpec]:
+    def claim_recovery(self, task_id: str, reason: str) -> tuple[Task, LoopSpec, int]:
         with self._lock:
             try:
                 self.connection.execute("BEGIN IMMEDIATE")
@@ -194,17 +194,50 @@ class SQLiteStore:
                 running = task.model_copy(
                     update={"status": TaskStatus.RUNNING, "goal": loop_spec.goal}
                 )
+                for approval in self.list_pending_approvals(task_id):
+                    self._write_approval(
+                        approval.model_copy(update={"status": "rejected", "actor": "recovery"})
+                    )
                 self._write_task(running)
                 self._write_recovery(
                     task_id,
                     recovery.model_copy(update={"required": False}),
                 )
-                self._append_event(task_id, "recovery_started", {"reason": reason})
+                recovery_started = self._append_event(
+                    task_id, "recovery_started", {"reason": reason}
+                )
                 self.connection.commit()
             except Exception:
                 self.connection.rollback()
                 raise
-        return running, loop_spec
+        return running, loop_spec, recovery_started.sequence
+
+    def compensate_recovery_claim(self, task_id: str, recovery_started_sequence: int) -> Task:
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                task = self.get_task(task_id)
+                recovery = self.get_recovery(task_id)
+                if task is None or recovery is None:
+                    raise ValueError("recovery claim is missing")
+                needs_review = task.model_copy(update={"status": TaskStatus.NEEDS_REVIEW})
+                self._write_task(needs_review)
+                self._write_recovery(
+                    task_id,
+                    recovery.model_copy(update={"required": True}),
+                )
+                deleted = self.connection.execute(
+                    "DELETE FROM events WHERE task_id = ? AND sequence = ? "
+                    "AND type = 'recovery_started'",
+                    (task_id, recovery_started_sequence),
+                )
+                if deleted.rowcount != 1:
+                    raise ValueError("recovery start event is missing")
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+        return needs_review
 
     def isolate_interrupted_tasks(self) -> list[Task]:
         with self._lock:

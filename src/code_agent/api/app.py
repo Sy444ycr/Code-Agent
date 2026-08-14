@@ -183,6 +183,13 @@ def create_app(
                 if task is not None and task.status in _TERMINAL_STATES:
                     if saw_task_completed:
                         return
+                    if not events:
+                        completed = _completed_event(task_id, app.state.store)
+                        if completed is not None:
+                            if completed.sequence <= cursor:
+                                return
+                            terminal_recheck_pending = True
+                            continue
                     if not terminal_recheck_pending:
                         terminal_recheck_pending = True
                         continue

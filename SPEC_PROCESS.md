@@ -40,6 +40,12 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 
 ## 实现阶段记录
 
+2026-08-14 在用户指定的隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery` 串行完成 Task 25 最终审查的 A–E Important。既有 Task 25 SDD 与用户给出的最终审查项作为已批准规格；因允许修改清单不包含新的设计/计划文件，本轮没有创建额外规格文档。
+
+本轮严格执行 TDD。A 使用真实运行中的审批等待 worker，红灯证明 `TaskManager.shutdown()` 被 `ThreadPoolExecutor.shutdown(wait=True)` 阻塞；实现独立 service-stop Event 与 Condition 通知后，worker 不走用户 cancel/终态落库即可退出，任务留待下次 manager 启动隔离。B 的红灯证明 recovery claim 不会处理旧 pending approval；最小实现是在 claim 的 `BEGIN IMMEDIATE` 事务内将旧审批标为 `rejected`，随后恢复运行创建新审批，旧 decision 冲突且不能再次修改记录。C 通过替换 `executor.submit` 注入失败，红灯证明任务、recovery、runtime 与 `recovery_started` 会形成不一致；最小实现让 claim 返回事件 sequence，submit 失败先移除 runtime，再由 storage 补偿事务恢复 `needs_review + required=True` 并删除该伪事件。D 的红灯证明 `after == task_completed.sequence` 仍会进入事件等待；最小实现仅在终态增量为空时回查已持久化完成事件并立即关闭，同时保留终态先于完成事件落库的 staged 补回看测试。E 将随后读取/断言完成事件的测试统一改为等待 `task_completed`。
+
+最终目标测试为 `35 passed, 39 warnings`；Python 全量为 `164 passed, 1 skipped, 43 warnings in 142.94s`；Ruff 输出 `All checks passed!`；Mypy 输出 `Success: no issues found in 33 source files`；Web Vitest 为 `2` 个文件、`8` 个测试通过；TypeScript/Vite build 成功。两份 `task-5-report.md` 已统一为相同内容。既有 FastAPI `on_event`、Starlette TestClient/httpx 弃用提示与 Vite `configLoader: 'native'` 迁移预警不影响退出状态。当前环境无通用 subagent 调度工具，因此无法执行独立 reviewer，改为按审查模板逐项自审并在最终 concern 中如实记录。
+
 2026-08-13 在隔离 worktree `C:\Users\sy444\Desktop\Agents\.worktrees\task-25-restart-recovery` 执行 Task 25 / Task 5 最终集中修复（唯一一次 fix wave）。遵循用户限定范围，只修改 `src/code_agent/api/app.py`、`tests/integration/test_api_sse.py`、`AGENT_LOG.md`、`SPEC_PROCESS.md` 与 `.superpowers/sdd/2026-08-13-task-25-restart-recovery/task-5-report.md`。先按 TDD 在 `tests/integration/test_api_sse.py` 新增 `test_events_stream_replays_terminal_completion_before_closing`：通过受控替身让同一终态任务的 `/api/tasks/{id}/events/stream` 首轮只看到 `feedback`、第二轮才返回 `task_completed`，精确固定“任务状态已终态，但 `task_completed` 尚未出现在当前批次 `events_after()` 中”的竞态窗口。
 
 红灯命令为 `$env:PYTHONPATH='src'; C:\Users\sy444\Desktop\Agents\.venv\Scripts\python.exe -m pytest tests\integration\test_api_sse.py::test_events_stream_replays_terminal_completion_before_closing -q`。失败表现为流只返回 `feedback`，缺少预期的 `task_completed`。根因是 `src/code_agent/api/app.py` 中 `/events/stream` generator 在每轮回放后只要看到任务 `status in _TERMINAL_STATES` 就立即关闭，而 `TaskManager._run()` 的顺序是先 `update_task(final_task)`、后 `append_event("task_completed", ...)`，两者之间存在短窗口，导致 SSE 可能在完成事件真正可读之前过早结束。

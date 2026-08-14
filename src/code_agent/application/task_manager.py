@@ -29,9 +29,14 @@ class _Runtime:
     task: Task
     provider: LLMProvider
     cancel_event: Event = field(default_factory=Event)
+    stop_event: Event = field(default_factory=Event)
     condition: Condition = field(default_factory=lambda: Condition(RLock()))
     approvals: dict[str, ApprovalResolution] = field(default_factory=dict)
     future: Future[TaskRunResult] | None = None
+
+
+class _ServiceStopping(Exception):
+    pass
 
 
 class TaskManager:
@@ -64,11 +69,15 @@ class TaskManager:
         with self._lock:
             if task_id in self._runtimes:
                 raise ValueError(f"task {task_id} is already running")
-            running, loop_spec = self.store.claim_recovery(
+            running, loop_spec, recovery_started_sequence = self.store.claim_recovery(
                 task_id,
                 "用户确认从头重新执行",
             )
-            self._start_runtime(running, loop_spec, provider)
+            try:
+                self._start_runtime(running, loop_spec, provider)
+            except Exception:
+                self.store.compensate_recovery_claim(task_id, recovery_started_sequence)
+                raise
         return running
 
     def get_task(self, task_id: str) -> Task | None:
@@ -127,6 +136,12 @@ class TaskManager:
             runtime.condition.wait(timeout=timeout)
 
     def shutdown(self) -> None:
+        with self._lock:
+            runtimes = list(self._runtimes.values())
+        for runtime in runtimes:
+            runtime.stop_event.set()
+            with runtime.condition:
+                runtime.condition.notify_all()
         self.executor.shutdown(wait=True, cancel_futures=False)
 
     def _runtime(self, task_id: str) -> _Runtime:
@@ -139,7 +154,11 @@ class TaskManager:
     def _start_runtime(self, task: Task, loop_spec: LoopSpec, provider: LLMProvider) -> None:
         runtime = _Runtime(task=task, provider=provider)
         self._runtimes[task.id] = runtime
-        runtime.future = self.executor.submit(self._run, runtime, loop_spec)
+        try:
+            runtime.future = self.executor.submit(self._run, runtime, loop_spec)
+        except Exception:
+            self._runtimes.pop(task.id, None)
+            raise
 
     def _run(self, runtime: _Runtime, loop_spec: LoopSpec) -> TaskRunResult:
         task = runtime.task
@@ -163,10 +182,16 @@ class TaskManager:
                 current_task.model_copy(update={"status": TaskStatus.WAITING_APPROVAL})
             )
             with runtime.condition:
-                while approval.id not in runtime.approvals and not runtime.cancel_event.is_set():
+                while (
+                    approval.id not in runtime.approvals
+                    and not runtime.cancel_event.is_set()
+                    and not runtime.stop_event.is_set()
+                ):
                     runtime.condition.wait(timeout=0.25)
                 if runtime.cancel_event.is_set():
                     return ApprovalResolution(approved=False)
+                if runtime.stop_event.is_set():
+                    raise _ServiceStopping
                 return runtime.approvals[approval.id]
 
         try:
@@ -180,6 +205,8 @@ class TaskManager:
                 cancel_check=runtime.cancel_event.is_set,
             )
             result = loop.run(task, loop_spec)
+        except _ServiceStopping:
+            return TaskRunResult(status=TaskStatus.WAITING_APPROVAL)
         except ProviderRequestError:
             result = TaskRunResult(status=TaskStatus.FAILED, report="Provider 请求失败。")
         except Exception:
