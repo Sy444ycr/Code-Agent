@@ -6,7 +6,13 @@ Code-Agent 是一个面向本地代码仓库的通用编码助手，也是 AI4SE
 
 用户可以用自然语言描述需求，由 Agent 在指定 workspace 中理解项目、修改代码、执行命令、运行验证，并根据测试、Lint、类型检查和构建反馈持续调整。项目不依赖现成的高层 Agent Runner，核心主循环、工具分发、治理、反馈、记忆与 SubAgent 调度均由本仓库自行实现。
 
-> 当前处于规格设计完成、实现尚未开始的阶段。本文中的安装命令和交互界面是首版目标，不代表目前已经可以运行。完整设计见 [SPEC.md](SPEC.md)。
+> 当前仓库已包含可离线验证的 Python、WebUI、Docker Compose 和 GitLab CI 交付链。真实 ECS 部署仍需用户手动准备 Ubuntu、Docker 和安全组；本文不代表已替用户完成云端部署。完整设计见 [SPEC.md](SPEC.md)。
+
+## Docker Compose 部署
+
+项目提供单服务 Docker Compose 部署配置，构建 WebUI 后以非 root 用户运行 `code-agent web`，主机只发布 TCP 80，SQLite 状态保存到命名卷 `code-agent-state`。详细的 Ubuntu 22.04 ECS 前置检查、启动、更新、回滚和清理步骤见 [deploy/ecs-ubuntu.md](deploy/ecs-ubuntu.md)。
+
+首轮部署默认使用 Mock Provider，并且仅建议通过 ECS 公网 IP/HTTP 做临时演示。服务不会在服务器上写入真实 API Key、私钥或账号凭据；域名、HTTPS、备份和真实云端 Provider 不属于本任务范围。
 
 ## Task 23 使用示例
 
@@ -306,7 +312,7 @@ python -m pytest tests/integration/test_provider_e2e.py -q
 ## 项目文档
 
 - [SPEC.md](SPEC.md)：产品、架构、安全、机制和验收规格。
-- [PLAN.md](PLAN.md)：待生成的细粒度实施计划。
+- [PLAN.md](PLAN.md)：细粒度实施计划与当前任务状态。
 - [SPEC_PROCESS.md](SPEC_PROCESS.md)：规格与计划生成过程记录。
 - [AGENT_LOG.md](AGENT_LOG.md)：实现阶段的 Agent 协作与人工干预日志。
 - [REFLECTION.md](REFLECTION.md)：项目完成后的个人反思报告。

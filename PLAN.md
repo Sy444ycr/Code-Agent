@@ -24,6 +24,10 @@
 - WebUI 不实现浏览器内代码编辑器；定位为“控制台 + 观察台”。
 - 首版不包含多用户云服务、分布式队列、自动 PR、自动部署、重型向量 RAG、递归 SubAgent 和多写 Agent 自动合并。
 
+## Task 26 状态
+
+Task 26 已完成实现范围：Dockerfile、Docker Compose、SQLite 命名卷、可选 Docker E2E、GitLab `unit-test` job 和 Ubuntu ECS 部署文档均已加入。默认验证保持离线 Mock Provider，不读取 keyring，不访问真实 Provider，也不自动操作 ECS。Docker daemon 未运行时，容器 E2E 必须记录为未执行；IP/HTTP 仅是临时演示边界。
+
 ---
 
 ## TDD Execution Contract

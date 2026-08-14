@@ -24,6 +24,8 @@ rg -n "TBD|TODO|implement later|fill in details|Similar to|类似|适当|后续�
 
 检查结果为空；`PLAN.md` 与默认计划文件的 SHA256 哈希一致。
 
+2026-08-14 执行 Task 26：在隔离 worktree 中串行完成 Docker/Compose 契约、可选容器持久化验收、GitLab `unit-test` 和 Ubuntu ECS 部署文档。严格按 RED→GREEN 推进；Docker CLI 可用但本机 Docker daemon 未运行，因此只执行静态契约，未将容器 E2E 记为通过。默认链路继续使用 Mock Provider，不读取 keyring、不访问真实 Provider、不写入任何凭据。
+
 2026-07-13 根据用户要求，将 `PLAN.md` 调整为明确的 TDD 执行版：新增 `TDD Execution Contract`，要求每个行为变更必须先写失败测试、确认红灯、再写最小实现、确认绿灯、绿灯后重构，并在 `AGENT_LOG.md` 记录红绿证据。此次调整只修改计划与过程文档，不编写实现代码。
 
 2026-08-09 用户确认 `docs/superpowers/specs/2026-08-09-task-service-design.md` 中的 Task 18 设计：先实现单机、单任务、Mock LLM 的 CLI 端到端闭环，采用 JSON 场景文件和即时 `y/a/n` 审批；真实 Provider、API 后台任务、WebUI 与并发任务留到后续独立阶段。随后使用 `superpowers:writing-plans` 将该设计拆分为 Mock 场景解析、审批主循环、SQLite 持久化和 TaskService/CLI 闭环四个严格 TDD 任务，计划保存至 `docs/superpowers/plans/2026-08-09-task-service-runtime.md`。用户明确授权继续实施，并要求在本文档记录实施和验证证据。

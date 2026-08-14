@@ -145,3 +145,37 @@ def test_compose_serves_webui_and_preserves_state(tmp_path: Path) -> None:
         assert persisted["goal"] == "Docker 持久化验收"
     finally:
         run("down", "-v")
+
+
+def test_ecs_deployment_docs_are_complete() -> None:
+    deployment = (ROOT / "deploy" / "ecs-ubuntu.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    plan = (ROOT / "PLAN.md").read_text(encoding="utf-8")
+    process = (ROOT / "SPEC_PROCESS.md").read_text(encoding="utf-8")
+    log = (ROOT / "AGENT_LOG.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "Ubuntu 22.04",
+        "Docker Engine",
+        "Docker Compose",
+        "git clone",
+        "docker compose up -d --build",
+        "docker compose ps",
+        "docker compose logs",
+        "docker compose pull",
+        "docker compose down",
+        "TCP 80",
+        "SSH",
+        "安全组",
+        "code-agent-state",
+    ):
+        assert phrase in deployment
+    assert "Docker Compose" in readme
+    assert "deploy/ecs-ubuntu.md" in readme
+    assert "Mock Provider" in readme
+    assert "API Key" in readme
+    assert "IP/HTTP" in readme
+    assert "实现尚未开始" not in readme
+    assert "Task 26" in plan
+    assert "Task 26" in process
+    assert "Task 26" in log
